@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'question_repository.dart';
-import 'package:jeopardy_fun/ui/ui.dart';
+import 'package:jeopardy_fun/ui/question_square_widget.dart';
 
 void main() => runApp(new QuizApp());
 
@@ -30,6 +30,7 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   JeopardyQuestionRepository repository;
+  int _id;
   String _answer;
   String _question;
   int _value;
@@ -40,6 +41,7 @@ class _MyHomePageState extends State<MyHomePage> {
 
   _MyHomePageState() {
     repository = new JeopardyQuestionRepository();
+    _id = -1;
     _answer = "";
     _question = "";
     _value = 0;
@@ -58,6 +60,7 @@ class _MyHomePageState extends State<MyHomePage> {
   void _loadQuestion() {
     repository.getRandomQuestion().then((question) {
       setState(() {
+        _id = question.id;
         _question = question.question;
         _answer = question.answer;
         _value = question.value;
@@ -117,11 +120,11 @@ class _MyHomePageState extends State<MyHomePage> {
         title: new Text(widget.title),
       ),
       body: new Container(
-        color: Colors.grey,
+        color: Colors.black87,
         child: new Stack(
           children: <Widget>[
             new Positioned.fill(
-              child: new QuestionSquareWidget(_category, _question, _answer,
+              child: new QuestionSquareWidget(_id, _category, _question, _answer,
                   _value, _airDate, _showAnswer, _showAnswerInfo),
             ),
             new Positioned(
