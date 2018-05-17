@@ -1,6 +1,6 @@
-# jeopardy_fun
+# quizapp
 
-A fun application that displays Jeopardy questions.
+A fun quiz app written in Flutter that utilizes jService (jservice.io) to retrieve questions/answers.
 
 ## Getting Started
 
