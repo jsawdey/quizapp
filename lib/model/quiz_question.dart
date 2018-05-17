@@ -1,6 +1,6 @@
 import 'package:intl/intl.dart';
 
-class JeopardyQuestion {
+class QuizQuestion {
   final int id;
   final String answer;
   final String question;
@@ -9,7 +9,7 @@ class JeopardyQuestion {
   final DateTime airDate;
   final Map<String, dynamic> rawJson;
 
-  JeopardyQuestion({this.id, this.question, this.answer, this.value, this.category, this.airDate, this.rawJson});
+  QuizQuestion({this.id, this.question, this.answer, this.value, this.category, this.airDate, this.rawJson});
 
   static String _sanitizeString(String jsonString) {
     String sanitized = jsonString.replaceAll(new RegExp(r'<\/?i>'), '');
@@ -24,8 +24,8 @@ class JeopardyQuestion {
     return formatted;
   }
 
-  factory JeopardyQuestion.fromJson(Map<String, dynamic> json) {
-    return new JeopardyQuestion(
+  factory QuizQuestion.fromJson(Map<String, dynamic> json) {
+    return new QuizQuestion(
       id: json['id'],
       question: _sanitizeString(json['question']),
       answer: _sanitizeString(json['answer']),

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:async';
 import 'package:quizapp/controller/question_repository.dart';
+import 'package:quizapp/model/quiz_question.dart';
 import 'package:quizapp/ui/quiz_question/quiz_ui_library.dart';
 
 enum DialogAnswer {
@@ -19,25 +20,13 @@ class QuizPage extends StatefulWidget {
 
 class _MyHomePageState extends State<QuizPage> {
   JServiceQuestionRepository repository;
-  int _id;
-  String _answer;
-  String _question;
-  int _value;
-  String _category;
-  String _airDate;
-  Map<String, dynamic> _json;
+  QuizQuestion _quizQuestion;
   bool _showAnswer;
   bool _questionReported;
   bool _showOverlay;
 
   _MyHomePageState() {
     repository = new JServiceQuestionRepository();
-    _id = -1;
-    _answer = "";
-    _question = "";
-    _value = 0;
-    _category = "";
-    _airDate = null;
     _showAnswer = false;
     _questionReported = false;
     _showOverlay = false;
@@ -46,24 +35,6 @@ class _MyHomePageState extends State<QuizPage> {
   @override
   void initState() {
     super.initState();
-    _loadQuestion();
-  }
-
-  void _loadQuestion() {
-    repository.getRandomQuestion().then((question) {
-      setState(() {
-        _id = question.id;
-        _question = question.question;
-        _answer = question.answer;
-        _value = question.value;
-        _category = question.category;
-        _airDate = question.formattedDateTime();
-        _json = question.rawJson;
-        _showAnswer = false;
-        _questionReported = false;
-        _showOverlay = false;
-      });
-    });
   }
 
   Future<Null> _reportError() async {
@@ -87,13 +58,15 @@ class _MyHomePageState extends State<QuizPage> {
     )) {
       case DialogAnswer.Yes:
       // Notify the server the question is invalid
-        repository.markQuestionInvalid(_id);
+        repository.markQuestionInvalid(_quizQuestion.id);
         // Mark the question as reported so we don't submit it again
         setState(() {
           _questionReported = true;
         });
         // Load a new question
-        _loadQuestion();
+        setState(() {
+
+        });
         break;
       case DialogAnswer.No:
       // ...
@@ -105,7 +78,7 @@ class _MyHomePageState extends State<QuizPage> {
     List<Widget> builder = [];
     builder.add(new Positioned.fill(child: _buildQuestionBody()));
     if (_showOverlay) {
-      builder.add(new Positioned.fill(child: new QuestionOverlay(_json)));
+      builder.add(new Positioned.fill(child: new QuestionOverlay(_quizQuestion.rawJson)));
     }
     return new Stack(
       children: builder,
@@ -114,7 +87,7 @@ class _MyHomePageState extends State<QuizPage> {
 
   Widget _buildQuestionAnswerWidget() {
     return new QuizDecorationWrapper(new QuestionAnswerWidget(
-        _showAnswer ? _answer : _question));
+        _showAnswer ? _quizQuestion.answer : _quizQuestion.question));
   }
 
   Widget _buildQuestionBody() {
@@ -125,7 +98,7 @@ class _MyHomePageState extends State<QuizPage> {
           new Flexible(
             flex: 2,
             child: new QuizDecorationWrapper(
-                new QuestionCategoryWidget(_category)),
+                new QuestionCategoryWidget(_quizQuestion.category)),
           ),
           new Flexible(
               flex: 4,
@@ -173,9 +146,24 @@ class _MyHomePageState extends State<QuizPage> {
           })
         ],
       ),
-      body: _buildOverlay(),
+      body: new FutureBuilder(
+        future: repository.getRandomQuestion(),
+        builder: (context, snapshot) {
+          switch (snapshot.connectionState) {
+            case ConnectionState.none:
+            case ConnectionState.waiting:
+              return new CircularProgressIndicator();
+            default:
+              _quizQuestion = snapshot.data;
+              _showAnswer = false;
+              _questionReported = false;
+              _showOverlay = false;
+              return _buildOverlay();
+          }
+        },
+      ),
       floatingActionButton: new FloatingActionButton(
-        onPressed: _loadQuestion,
+        onPressed: () {setState(() {});},
         tooltip: 'Load Random Question',
         child: new Icon(Icons.refresh),
       ),
