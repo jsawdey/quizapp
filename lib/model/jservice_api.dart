@@ -7,6 +7,7 @@ class JServiceAPI {
   static final _url = 'jservice.io';
 
   static Future<List<dynamic>> getRandomJServiceAPIQuestions(int count) async {
+    if (count < 1 || count > 100) return null;
     final uri = Uri.http(_url, '/api/random', {"count": count.toString()});
 
     final httpRequest = await _httpClient.getUrl(uri);

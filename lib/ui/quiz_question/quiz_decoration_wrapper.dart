@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 
-class QuestionAnswerWrapper extends StatelessWidget {
-  final double _height;
+class QuizDecorationWrapper extends StatelessWidget {
   final Widget _widget;
-  QuestionAnswerWrapper(this._height, this._widget);
+  QuizDecorationWrapper(this._widget);
   @override
   Widget build(BuildContext context) {
     return new Container(
         constraints: new BoxConstraints.expand(
-            height: _height
         ),
         decoration: new BoxDecoration(
           border: new Border.all(width: 8.0, color: Colors.black),

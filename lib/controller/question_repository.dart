@@ -1,15 +1,15 @@
 import 'dart:async';
-import 'package:jeopardy_fun/model/jservice_api.dart';
-import 'package:jeopardy_fun/model/question.dart';
+import 'package:quizapp/model/jservice_api.dart';
+import 'package:quizapp/model/question.dart';
 
-class JeopardyQuestionRepository {
+class JServiceQuestionRepository {
 
   Future<JeopardyQuestion> getRandomQuestion() async {
     int invalidCount = 0;
     var jsonResponse;
     do {
       jsonResponse = await JServiceAPI.getRandomJServiceAPIQuestions(1);
-      print(jsonResponse[0]['invalid_count']);
+      print(jsonResponse[0]['invalid_count'].toString());
       invalidCount = jsonResponse[0]['invalid_count'] == null ? 0 :
         int.parse(jsonResponse[0]['invalid_count']);
     } while (invalidCount != 0);
@@ -17,8 +17,10 @@ class JeopardyQuestionRepository {
   }
 
   void markQuestionInvalid(int id) {
-    var jsonResponse;
-    jsonResponse = JServiceAPI.markJServiceQuestionInvalid(id);
-    print(jsonResponse);
+    print('Marking question ' + id.toString() + ' invalid.');
+    JServiceAPI.markJServiceQuestionInvalid(id);
   }
+
+
+
 }

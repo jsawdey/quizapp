@@ -1,5 +1,5 @@
-name: jeopardy_fun
-description: A fun application that displays Jeopardy questions.
+name: quizapp
+description: A fun quiz app written in Flutter that utilizes jService (jservice.io) to retrieve questions/answers.
 
 dependencies:
   flutter:

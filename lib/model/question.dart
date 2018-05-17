@@ -7,8 +7,9 @@ class JeopardyQuestion {
   final int value;
   final String category;
   final DateTime airDate;
+  final Map<String, dynamic> rawJson;
 
-  JeopardyQuestion({this.id, this.question, this.answer, this.value, this.category, this.airDate});
+  JeopardyQuestion({this.id, this.question, this.answer, this.value, this.category, this.airDate, this.rawJson});
 
   static String _sanitizeString(String jsonString) {
     String sanitized = jsonString.replaceAll(new RegExp(r'<\/?i>'), '');
@@ -30,7 +31,8 @@ class JeopardyQuestion {
       answer: _sanitizeString(json['answer']),
       value: json['value'],
       category: json['category']['title'],
-      airDate: DateTime.parse(json['airdate'])
+      airDate: DateTime.parse(json['airdate']),
+      rawJson: json
     );
   }
 }
