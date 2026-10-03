@@ -104,14 +104,13 @@ CREATE INDEX clues_round ON clues(round);
 
 ## 3. Flutter toolchain upgrade (prerequisite)
 
-**Status:** the Dart side is done (Flutter 3.47.6 / Dart 3.13.5): null safety,
-`intl ^0.20.2`, `flutter_lints`, a clean `flutter analyze`, and widget smoke
-tests. The app keeps Material 2 (`useMaterial3: false`), so its look doesn't
-change. **Still to do:** regenerate the `android/` and `ios/` folders from the
-current `flutter create` template, then put back the Android ID
-`com.sawdeydev.jeopardyfun`, the iOS bundle ID `com.sawdeydev.jeopardyFun` and the
-label `jeopardy_fun`. The launcher icons are Flutter's defaults, so there's
-nothing custom to carry over.
+**Status: done.** The app runs on Flutter 3.47.6 / Dart 3.13.5 with null
+safety, `intl ^0.20.2`, `flutter_lints` (a clean `flutter analyze`) and widget
+smoke tests. It keeps Material 2 (`useMaterial3: false`), so its look doesn't
+change. The `android/` and `ios/` folders were regenerated from the current
+template, keeping the Android ID `com.sawdeydev.jeopardyfun`, the iOS bundle ID
+`com.sawdeydev.jeopardyFun` and the label `jeopardy_fun`; `flutter build apk`
+works (minSdk 24, target SDK 36).
 
 The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
 `HttpStatus.OK`, and no null safety). Current versions of `sqflite` and
@@ -204,7 +203,7 @@ The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
 
 ## 6. Suggested commit order
 1. ~~Add `tool/build_clue_db.py` and its tests, and update `.gitignore`~~ (done)
-2. Upgrade the Flutter toolchain and migrate to null safety
+2. ~~Upgrade the Flutter toolchain and migrate to null safety~~ (done)
 3. Add `ClueDatabase`, `QuestionSource`, `LocalQuestionSource` and the updated model, with tests
 4. Switch the UI and reporting over, then delete `jservice_api.dart`
 5. Update the README and pubspec
