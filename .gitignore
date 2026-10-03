@@ -52,5 +52,5 @@ __pycache__/
 *.pyc
 
 # Jeopardy clue dataset and generated database (personal use only; never commit)
-data/
+/data/
 assets/db/

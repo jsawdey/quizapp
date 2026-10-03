@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:quizapp/controller/question_repository.dart';
+import 'package:quizapp/model/question.dart';
 import 'package:quizapp/ui/quiz_question/quiz_ui_library.dart';
 
 enum DialogAnswer {
@@ -8,17 +9,17 @@ enum DialogAnswer {
 }
 
 class QuizPage extends StatefulWidget {
-  const QuizPage({super.key, required this.title});
+  const QuizPage({super.key, required this.title, required this.repository});
 
   final String title;
+  final QuestionRepository repository;
 
   @override
   State<QuizPage> createState() => _QuizPageState();
 }
 
 class _QuizPageState extends State<QuizPage> {
-  final JServiceQuestionRepository repository = JServiceQuestionRepository();
-  int _id = -1;
+  JeopardyQuestion? _current;
   String _answer = "";
   String _question = "";
   Map<String, dynamic> _json = {};
@@ -34,14 +35,14 @@ class _QuizPageState extends State<QuizPage> {
   }
 
   void _loadQuestion() {
-    repository.getRandomQuestion().then((question) {
+    widget.repository.next().then((question) {
       if (!mounted) return;
       setState(() {
-        _id = question.id;
+        _current = question;
         _question = question.question;
         _answer = question.answer;
         _category = question.category;
-        _json = question.rawJson;
+        _json = question.raw;
         _showAnswer = false;
         _questionReported = false;
         _showOverlay = false;
@@ -72,8 +73,18 @@ class _QuizPageState extends State<QuizPage> {
     )) {
       case DialogAnswer.yes:
         if (!mounted) return;
-      // Notify the server the question is invalid
-        repository.markQuestionInvalid(_id);
+        // Hide the question on this device (the repository reports it to the
+        // source in the background) before loading the next one, so it can't
+        // come straight back.
+        final current = _current;
+        if (current != null) {
+          try {
+            await widget.repository.hide(current);
+          } catch (error) {
+            debugPrint('Could not hide question ${current.key}: $error');
+          }
+        }
+        if (!mounted) return;
         // Mark the question as reported so we don't submit it again
         setState(() {
           _questionReported = true;
