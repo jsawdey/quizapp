@@ -1,29 +1,46 @@
-// This is a basic Flutter widget test.
-// To perform an interaction with a widget in your test, use the WidgetTester utility that Flutter
-// provides. For example, you can send tap and scroll gestures. You can also use WidgetTester to
-// find child widgets in the widget tree, read text, and verify that the values of widget properties
-// are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:quizapp/main.dart';
+import 'package:quizapp/ui/quiz_question/quiz_ui_library.dart';
 
 void main() {
-  /*testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(new QuizApp());
-
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+  // Widget tests answer every HTTP request with a 400, so no question loads;
+  // the page must still build and stay usable.
+  testWidgets('Quiz page builds without a question', (WidgetTester tester) async {
+    await tester.pumpWidget(const QuizApp());
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
-  });*/
+    expect(find.text('Random Trivia Question'), findsOneWidget);
+    expect(find.text('Report Question'), findsOneWidget);
+    expect(find.byType(QuestionCategoryWidget), findsOneWidget);
+    expect(find.byType(QuestionAnswerWidget), findsOneWidget);
+    expect(find.byIcon(Icons.refresh), findsOneWidget);
+  });
+
+  testWidgets('Info button toggles the raw data overlay', (WidgetTester tester) async {
+    await tester.pumpWidget(const QuizApp());
+    expect(find.byType(QuestionOverlay), findsNothing);
+
+    await tester.tap(find.byIcon(Icons.info));
+    await tester.pump();
+    expect(find.byType(QuestionOverlay), findsOneWidget);
+
+    await tester.tap(find.byIcon(Icons.info));
+    await tester.pump();
+    expect(find.byType(QuestionOverlay), findsNothing);
+  });
+
+  testWidgets('Report dialog can be cancelled', (WidgetTester tester) async {
+    await tester.pumpWidget(const QuizApp());
+
+    await tester.tap(find.text('Report Question'));
+    await tester.pumpAndSettle();
+    expect(find.text('Are you sure you want to report this question as invalid?'),
+        findsOneWidget);
+
+    await tester.tap(find.text('No'));
+    await tester.pumpAndSettle();
+    expect(find.byType(SimpleDialog), findsNothing);
+  });
 }

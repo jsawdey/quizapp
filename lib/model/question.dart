@@ -4,28 +4,29 @@ class JeopardyQuestion {
   final int id;
   final String answer;
   final String question;
-  final int value;
+  final int? value;
   final String category;
   final DateTime airDate;
   final Map<String, dynamic> rawJson;
 
-  JeopardyQuestion({this.id, this.question, this.answer, this.value, this.category, this.airDate, this.rawJson});
+  JeopardyQuestion({required this.id, required this.question, required this.answer,
+    this.value, required this.category, required this.airDate, required this.rawJson});
 
   static String _sanitizeString(String jsonString) {
-    String sanitized = jsonString.replaceAll(new RegExp(r'<\/?i>'), '');
-    sanitized = sanitized.replaceAll(new RegExp(r'\\'), '');
+    String sanitized = jsonString.replaceAll(RegExp(r'<\/?i>'), '');
+    sanitized = sanitized.replaceAll(RegExp(r'\\'), '');
     return sanitized;
   }
 
   String formattedDateTime() {
     Intl.defaultLocale = 'en_US';
-    var formatter = new DateFormat.yMd();
+    var formatter = DateFormat.yMd();
     String formatted = formatter.format(airDate);
     return formatted;
   }
 
   factory JeopardyQuestion.fromJson(Map<String, dynamic> json) {
-    return new JeopardyQuestion(
+    return JeopardyQuestion(
       id: json['id'],
       question: _sanitizeString(json['question']),
       answer: _sanitizeString(json['answer']),

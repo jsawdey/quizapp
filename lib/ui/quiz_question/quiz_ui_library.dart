@@ -1,4 +1,4 @@
-library quiz_question_ui;
+library;
 
 export 'package:quizapp/ui/quiz_question/question_answer_widget.dart';
 export 'package:quizapp/ui/quiz_question/question_category_widget.dart';

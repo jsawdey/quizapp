@@ -4,15 +4,15 @@ import 'dart:io';
 
 class JServiceAPI {
   static final _httpClient = HttpClient();
-  static final _url = 'jservice.io';
+  static const _url = 'jservice.io';
 
-  static Future<List<dynamic>> getRandomJServiceAPIQuestions(int count) async {
+  static Future<List<dynamic>?> getRandomJServiceAPIQuestions(int count) async {
     if (count < 1 || count > 100) return null;
     final uri = Uri.http(_url, '/api/random', {"count": count.toString()});
 
     final httpRequest = await _httpClient.getUrl(uri);
     final httpResponse = await httpRequest.close();
-    if (httpResponse.statusCode != HttpStatus.OK) {
+    if (httpResponse.statusCode != HttpStatus.ok) {
       return null;
     }
 
@@ -29,7 +29,7 @@ class JServiceAPI {
 
     final httpRequest = await _httpClient.postUrl(uri);
     final httpResponse = await httpRequest.close();
-    if (httpResponse.statusCode != HttpStatus.OK) {
+    if (httpResponse.statusCode != HttpStatus.ok) {
       return null;
     }
 

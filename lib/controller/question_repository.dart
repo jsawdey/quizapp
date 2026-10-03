@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:quizapp/model/jservice_api.dart';
 import 'package:quizapp/model/question.dart';
 
@@ -6,18 +7,21 @@ class JServiceQuestionRepository {
 
   Future<JeopardyQuestion> getRandomQuestion() async {
     int invalidCount = 0;
-    var jsonResponse;
+    List<dynamic>? jsonResponse;
     do {
       jsonResponse = await JServiceAPI.getRandomJServiceAPIQuestions(1);
-      print(jsonResponse[0]['invalid_count'].toString());
-      invalidCount = jsonResponse[0]['invalid_count'] == null ? 0 :
-        int.parse(jsonResponse[0]['invalid_count']);
+      if (jsonResponse == null || jsonResponse.isEmpty) {
+        throw Exception('jService did not return a question');
+      }
+      final count = jsonResponse[0]['invalid_count'];
+      debugPrint(count.toString());
+      invalidCount = count == null ? 0 : int.parse(count.toString());
     } while (invalidCount != 0);
     return JeopardyQuestion.fromJson(jsonResponse[0]);
   }
 
   void markQuestionInvalid(int id) {
-    print('Marking question ' + id.toString() + ' invalid.');
+    debugPrint('Marking question $id invalid.');
     JServiceAPI.markJServiceQuestionInvalid(id);
   }
 

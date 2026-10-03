@@ -1,47 +1,31 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
 import 'package:quizapp/controller/question_repository.dart';
 import 'package:quizapp/ui/quiz_question/quiz_ui_library.dart';
 
 enum DialogAnswer {
-  Yes,
-  No
+  yes,
+  no
 }
 
 class QuizPage extends StatefulWidget {
-  QuizPage({Key key, this.title}) : super(key: key);
+  const QuizPage({super.key, required this.title});
 
   final String title;
 
   @override
-  _MyHomePageState createState() => new _MyHomePageState();
+  State<QuizPage> createState() => _QuizPageState();
 }
 
-class _MyHomePageState extends State<QuizPage> {
-  JServiceQuestionRepository repository;
-  int _id;
-  String _answer;
-  String _question;
-  int _value;
-  String _category;
-  String _airDate;
-  Map<String, dynamic> _json;
-  bool _showAnswer;
-  bool _questionReported;
-  bool _showOverlay;
-
-  _MyHomePageState() {
-    repository = new JServiceQuestionRepository();
-    _id = -1;
-    _answer = "";
-    _question = "";
-    _value = 0;
-    _category = "";
-    _airDate = null;
-    _showAnswer = false;
-    _questionReported = false;
-    _showOverlay = false;
-  }
+class _QuizPageState extends State<QuizPage> {
+  final JServiceQuestionRepository repository = JServiceQuestionRepository();
+  int _id = -1;
+  String _answer = "";
+  String _question = "";
+  Map<String, dynamic> _json = {};
+  bool _showAnswer = false;
+  bool _questionReported = false;
+  bool _showOverlay = false;
+  String _category = "";
 
   @override
   void initState() {
@@ -51,41 +35,43 @@ class _MyHomePageState extends State<QuizPage> {
 
   void _loadQuestion() {
     repository.getRandomQuestion().then((question) {
+      if (!mounted) return;
       setState(() {
         _id = question.id;
         _question = question.question;
         _answer = question.answer;
-        _value = question.value;
         _category = question.category;
-        _airDate = question.formattedDateTime();
         _json = question.rawJson;
         _showAnswer = false;
         _questionReported = false;
         _showOverlay = false;
       });
+    }).catchError((Object error) {
+      debugPrint('Could not load a question: $error');
     });
   }
 
-  Future<Null> _reportError() async {
+  Future<void> _reportError() async {
     switch (await showDialog<DialogAnswer>(
         context: context,
         builder: (BuildContext context) {
-          return new SimpleDialog(
+          return SimpleDialog(
             title: const Text('Are you sure you want to report this question as invalid?'),
             children: <Widget>[
-              new SimpleDialogOption(
-                onPressed: () { Navigator.pop(context, DialogAnswer.Yes); },
+              SimpleDialogOption(
+                onPressed: () { Navigator.pop(context, DialogAnswer.yes); },
                 child: const Text('Yes'),
               ),
-              new SimpleDialogOption(
-                onPressed: () { Navigator.pop(context, DialogAnswer.No); },
+              SimpleDialogOption(
+                onPressed: () { Navigator.pop(context, DialogAnswer.no); },
                 child: const Text('No'),
               ),
             ],
           );
         }
     )) {
-      case DialogAnswer.Yes:
+      case DialogAnswer.yes:
+        if (!mounted) return;
       // Notify the server the question is invalid
         repository.markQuestionInvalid(_id);
         // Mark the question as reported so we don't submit it again
@@ -95,7 +81,8 @@ class _MyHomePageState extends State<QuizPage> {
         // Load a new question
         _loadQuestion();
         break;
-      case DialogAnswer.No:
+      case DialogAnswer.no:
+      case null:
       // ...
         break;
     }
@@ -103,33 +90,33 @@ class _MyHomePageState extends State<QuizPage> {
 
   Widget _buildOverlay() {
     List<Widget> builder = [];
-    builder.add(new Positioned.fill(child: _buildQuestionBody()));
+    builder.add(Positioned.fill(child: _buildQuestionBody()));
     if (_showOverlay) {
-      builder.add(new Positioned.fill(child: new QuestionOverlay(_json)));
+      builder.add(Positioned.fill(child: QuestionOverlay(_json)));
     }
-    return new Stack(
+    return Stack(
       children: builder,
     );
   }
 
   Widget _buildQuestionAnswerWidget() {
-    return new QuizDecorationWrapper(new QuestionAnswerWidget(
+    return QuizDecorationWrapper(QuestionAnswerWidget(
         _showAnswer ? _answer : _question));
   }
 
   Widget _buildQuestionBody() {
-    return new Container(
+    return Container(
       color: Colors.black87,
-      child: new Column(
+      child: Column(
         children: <Widget>[
-          new Flexible(
+          Flexible(
             flex: 2,
-            child: new QuizDecorationWrapper(
-                new QuestionCategoryWidget(_category)),
+            child: QuizDecorationWrapper(
+                QuestionCategoryWidget(_category)),
           ),
-          new Flexible(
+          Flexible(
               flex: 4,
-              child: new GestureDetector(
+              child: GestureDetector(
                 onTap: () {
                   setState(() {
                     _showAnswer = !_showAnswer;
@@ -138,15 +125,15 @@ class _MyHomePageState extends State<QuizPage> {
                 child: _buildQuestionAnswerWidget(),
               )
           ),
-          new Flexible(
+          Flexible(
             flex: 1,
-            child: new Center(
-              child: new FlatButton(
-                  padding: const EdgeInsets.all(4.0),
+            child: Center(
+              child: TextButton(
+                  style: TextButton.styleFrom(padding: const EdgeInsets.all(4.0)),
                   onPressed: _questionReported ? null : _reportError,
-                  child: new Text(
+                  child: Text(
                     'Report Question',
-                    style: new TextStyle(
+                    style: TextStyle(
                       color: _questionReported ? Colors.black38 : Colors.white,
                       decoration: TextDecoration.underline,
                     ),
@@ -162,11 +149,11 @@ class _MyHomePageState extends State<QuizPage> {
   @override
   Widget build(BuildContext context) {
     // This method is rerun every time setState is called.
-    return new Scaffold(
-      appBar: new AppBar(
-        title: new Text(widget.title),
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
         actions: <Widget>[
-          new IconButton(icon: new Icon(Icons.info), onPressed: () {
+          IconButton(icon: Icon(Icons.info), onPressed: () {
             setState(() {
               _showOverlay = !_showOverlay;
             });
@@ -174,10 +161,10 @@ class _MyHomePageState extends State<QuizPage> {
         ],
       ),
       body: _buildOverlay(),
-      floatingActionButton: new FloatingActionButton(
+      floatingActionButton: FloatingActionButton(
         onPressed: _loadQuestion,
         tooltip: 'Load Random Question',
-        child: new Icon(Icons.refresh),
+        child: Icon(Icons.refresh),
       ),
     );
   }
