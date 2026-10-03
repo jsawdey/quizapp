@@ -22,7 +22,8 @@ Build it with Python 3 (standard library only) from the repository root:
 python3 tool/build_clue_db.py
 ```
 
-This downloads the dataset to `data/`, checks its SHA-256, and writes
-`assets/db/clues.db` (about 87 MB). Run `python3 tool/build_clue_db.py --help`
+This downloads the dataset to `data/`, checks its SHA-256, drops the few clues
+that need a picture, video or audio clip, and writes `assets/db/clues.db`
+(about 87 MB). Run `python3 tool/build_clue_db.py --help`
 for options, such as importing a newer dataset release. The script's tests run
 with `python3 -m unittest discover tool`.

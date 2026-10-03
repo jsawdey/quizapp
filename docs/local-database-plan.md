@@ -37,8 +37,8 @@ Checked against release **v42**, commit
   - About 127,000 rows escape their quotes as `\"`, and about 2,200 rows
     contain `\'`. Remove these backslashes at import time.
   - There are **no clue or game IDs**, so the import script has to create them.
-  - The dataset author has already removed clues that depend on images,
-    video or audio.
+  - The dataset author has already removed most clues that depend on images,
+    video or audio. About 200 remain, which the import script filters out.
   - There are also `extra_matches.tsv` (special matches with different round
     numbering, including Triple Jeopardy) and per-season files in `seasons/`.
     Leave them out of the first version.
@@ -57,6 +57,12 @@ Add `tool/build_clue_db.py`. It uses only the Python standard library
 3. **Clean** each row: remove `\"` and `\'` escapes and any stray backslashes
    (a handful of typos like `pre\valent`), collapse whitespace, and drop any row
    whose category, clue or response is empty.
+   Also drop clues that need a picture, video or audio clip the dataset doesn't
+   include (198 in v42). The patterns are deliberately narrow and are tested against
+   real clues: "highlighted here", "[Instrumental music plays]", "seen on the
+   right", "the tune you're hearing", or a bare "What's this?". Clue Crew stage
+   directions are kept, because the spoken clue usually works as text.
+   `--keep-media-clues` turns the filter off.
 4. **Normalize** into the tables below and write `assets/db/clues.db`. Then
    `VACUUM` it and record the dataset version and row counts in a `meta` table.
    It builds into a temporary file first, so a failed run leaves any existing database untouched.

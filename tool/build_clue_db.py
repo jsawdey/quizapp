@@ -17,6 +17,7 @@ import csv
 import datetime
 import hashlib
 import os
+import re
 import sqlite3
 import sys
 import tempfile
@@ -62,6 +63,43 @@ CREATE TABLE clues (
 );
 CREATE INDEX clues_round ON clues(round);
 '''
+
+
+# Clues that only make sense with a picture, video or audio clip the dataset
+# doesn't include. The dataset author already removed most of these; the
+# patterns below catch the rest. Each one was checked against the full v42
+# dataset: they are kept narrow because looser ones ("you're looking at",
+# any Clue Crew stage direction) mostly match clues that read fine as text.
+MEDIA_PATTERNS = {
+    # The whole clue is a demonstrative: "What's this?"
+    'bare_demonstrative': re.compile(
+        r"^(?:what|who)(?:'s| is| are) (?:this|these|here|shown)\??$", re.I),
+    # "the country highlighted here", "the skill being demonstrated here".
+    # Excludes "have performed here" (a venue) and "demonstrated here at SRI".
+    'shown_here': re.compile(
+        r"\b(?<!have )(?:seen|shown|pictured|heard|depicted|displayed|featured|played|"
+        r"performed|sung|demonstrated|highlighted|illustrated|circled|marked|indicated|"
+        r"outlined) here\b(?! (?:at|by)\b)", re.I),
+    # Stage directions for audio or video: "[Instrumental music plays]".
+    'bracketed_media_cue': re.compile(
+        r"\[[^\]]*\b(?:plays?|playing|music|audio|sounds?|theme|sings?|singing|video|"
+        r"clip|tape|recording|hums?)\b[^\]]*\]", re.I),
+    # A position in a photo: "seen on the right", "shown at left".
+    'photo_position': re.compile(
+        r"\b(?:seen|shown|pictured) (?:on the |at )(?:left|right)\b", re.I),
+    # Music playing during the clue: "the tune you're hearing", "you just heard".
+    'audio_playing': re.compile(
+        r"\b(?:(?:song|tune|piece|music|melody|overture|concerto|symphony|aria|theme)"
+        r"[^.;]{0,20} you(?:'re| are) (?:hearing|listening to)|you just heard)\b", re.I),
+}
+
+
+def media_reason(clue):
+    """Return the name of the first media pattern the clue matches, or None."""
+    for name, pattern in MEDIA_PATTERNS.items():
+        if pattern.search(clue):
+            return name
+    return None
 
 
 def sha256_of(path):
@@ -113,10 +151,10 @@ def read_rows(path):
             yield row
 
 
-def build(input_path, output_path, dataset_version, source_sha256):
+def build(input_path, output_path, dataset_version, source_sha256, keep_media=False):
     """Build the database at output_path and return a dict of statistics."""
     stats = {'read': 0, 'written': 0, 'dropped_empty': 0, 'dropped_duplicate': 0,
-             'rounds': {}}
+             'dropped_media': {}, 'rounds': {}}
     games = {}
     categories = {}
     seen_keys = set()
@@ -131,6 +169,10 @@ def build(input_path, output_path, dataset_version, source_sha256):
         response = clean(row['question'])
         if not category or not clue or not response:
             stats['dropped_empty'] += 1
+            continue
+        reason = None if keep_media else media_reason(clue)
+        if reason:
+            stats['dropped_media'][reason] = stats['dropped_media'].get(reason, 0) + 1
             continue
 
         air_date = row['air_date'].strip()
@@ -203,6 +245,8 @@ def parse_args(argv):
     parser.add_argument('--sha256', default=DATASET_SHA256,
                         help='expected SHA-256 of the TSV; pass an empty string to skip '
                              'the check (default: %(default)s)')
+    parser.add_argument('--keep-media-clues', action='store_true',
+                        help='keep clues that seem to need a picture, video or audio clip')
     parser.add_argument('--dataset-version', default=DATASET_VERSION,
                         help='dataset release recorded in the meta table '
                              '(default: %(default)s)')
@@ -222,13 +266,17 @@ def main(argv=None):
               file=sys.stderr)
         return 1
 
-    stats = build(args.input, args.output, args.dataset_version, actual_sha256)
+    stats = build(args.input, args.output, args.dataset_version, actual_sha256,
+                  keep_media=args.keep_media_clues)
 
     rounds = ', '.join(f'round {r}: {n}' for r, n in sorted(stats['rounds'].items()))
+    media = sum(stats['dropped_media'].values())
+    media_detail = ''.join(f'\n                {n} {name}'
+                           for name, n in sorted(stats['dropped_media'].items()))
     print(f'Wrote {args.output} ({stats["size_bytes"] / 1e6:.1f} MB)\n'
           f'  clues:      {stats["written"]} of {stats["read"]} read ({rounds})\n'
           f'  dropped:    {stats["dropped_empty"]} empty, '
-          f'{stats["dropped_duplicate"]} duplicate\n'
+          f'{stats["dropped_duplicate"]} duplicate, {media} need media{media_detail}\n'
           f'  games:      {stats["games"]}\n'
           f'  categories: {stats["categories"]}')
     return 0

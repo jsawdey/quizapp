@@ -26,12 +26,15 @@ SAMPLE_ROWS = [
     ['3', '0', '0', 'WORLD CAPITALS', '', 'It was founded by Peter the Great', 'St. Petersburg',
      '1984-09-11', 'Tournament of Champions game 1.'],
     # Same date, round, category and text as the next row, but a different value: both kept.
-    ['1', '600', '0', "TEXAS HOLD 'EM", '', "What's this?", 'four of a kind', '2012-09-17', ''],
-    ['1', '800', '0', "TEXAS HOLD 'EM", '', "What's this?", 'a flush', '2012-09-17', ''],
+    ['1', '600', '0', "TEXAS HOLD 'EM", '', 'Name this hand', 'four of a kind', '2012-09-17', ''],
+    ['1', '800', '0', "TEXAS HOLD 'EM", '', 'Name this hand', 'a flush', '2012-09-17', ''],
     # An exact duplicate of the row above: dropped.
-    ['1', '800', '0', "TEXAS HOLD 'EM", '', "What's this?", 'a flush', '2012-09-17', ''],
+    ['1', '800', '0', "TEXAS HOLD 'EM", '', 'Name this hand', 'a flush', '2012-09-17', ''],
     # Empty response: dropped.
     ['1', '200', '0', 'ANIMALS', '', 'A clue with no response', '', '1984-09-10', ''],
+    # Needs a video clip: dropped.
+    ['1', '400', '0', 'GONE FISHING', '', "It's the skill being demonstrated here", 'casting',
+     '1984-09-10', ''],
 ]
 
 
@@ -64,14 +67,20 @@ class BuildClueDbTest(unittest.TestCase):
 
     def test_counts(self):
         stats = self.build()
-        self.assertEqual(stats['read'], 8)
+        self.assertEqual(stats['read'], 9)
         self.assertEqual(stats['written'], 6)
         self.assertEqual(stats['dropped_empty'], 1)
         self.assertEqual(stats['dropped_duplicate'], 1)
+        self.assertEqual(stats['dropped_media'], {'shown_here': 1})
         self.assertEqual(stats['rounds'], {1: 4, 2: 1, 3: 1})
         self.assertEqual(stats['games'], 3)
         self.assertEqual(stats['categories'], 4)
         self.assertEqual(self.query('SELECT COUNT(*) FROM clues'), [(6,)])
+
+    def test_keep_media(self):
+        stats = build_clue_db.build(self.tsv, self.db, 'test', 'abc123', keep_media=True)
+        self.assertEqual(stats['written'], 7)
+        self.assertEqual(stats['dropped_media'], {})
 
     def test_ids_are_contiguous(self):
         self.build()
@@ -160,6 +169,54 @@ class BuildClueDbTest(unittest.TestCase):
                                    '--sha256', ''])
         self.assertEqual(code, 0)
         self.assertTrue(self.db.exists())
+
+
+class MediaReasonTest(unittest.TestCase):
+    """Clues taken from the v42 dataset."""
+
+    def assertReason(self, clue, expected):
+        self.assertEqual(build_clue_db.media_reason(clue), expected, clue)
+
+    def test_media_clues(self):
+        for clue, reason in [
+            ("What's this?", 'bare_demonstrative'),
+            ("It's the country highlighted here", 'shown_here'),
+            ('This country of southeastern Europe is outlined here', 'shown_here'),
+            ("It's the big ballet leap being performed here", 'shown_here'),
+            ('Geographic name of the instrument featured here in a Mozart concerto', 'shown_here'),
+            ('Composer of following famous Concerto No. 1 in B flat minor: '
+             '[Instrumental music plays]', 'bracketed_media_cue'),
+            ('Victorious & defeated countries portrayed in this overture: '
+             '[1812 Overture plays.]', 'bracketed_media_cue'),
+            ('Seen on the right, Moe Howard of the Three Stooges really personified this '
+             'kitchenware cut', 'photo_position'),
+            ('John Callahan, seen at left, pulled together "Juneteenth"', 'photo_position'),
+            ("The cheerful tune you're hearing is this composer's overture to "
+             '"H.M.S. Pinafore"', 'audio_playing'),
+            ('You just heard the rooster do this, also the name of another bird',
+             'audio_playing'),
+        ]:
+            self.assertReason(clue, reason)
+
+    def test_text_clues(self):
+        for clue in [
+            'Sir Walter tried to stab himself to death while imprisoned here',
+            'Manny Sanguillen, John Candelaria & Andy Van Slyke are among the heroes who '
+            'have performed here',
+            '(Jimmy of the Clue Crew holds the first computer mouse at SRI International.) '
+            'The first computer mouse was developed & demonstrated here at SRI',
+            '(Kelly of the Clue Crew shows a map on the monitor.) For those who like a '
+            'challenge, it takes about six months to hike the nearly 2,200 miles',
+            'This man\'s "[love is more thicker than forget]" continues non-capitalization',
+            '(Hi, I\'m Lee Goldberg from New York\'s ABC7. [He presents from Plymouth '
+            'Church in Brooklyn, New York.]) Plymouth Church was once a stop',
+            'Easily seen below the equator, the constellation Crux is popularly known by '
+            'this name',
+            "What you're listening to when you measure your \"HR\"",
+            'Title of the following: "Promise me, Son, not to do the things I\'ve done"',
+            "What's this word for a baby kangaroo?",
+        ]:
+            self.assertReason(clue, None)
 
 
 if __name__ == '__main__':
