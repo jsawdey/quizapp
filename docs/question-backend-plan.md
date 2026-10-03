@@ -363,5 +363,5 @@ pass at every commit. The SessionStart hook already installs everything needed.
   jService clone's ids can't be matched to `clue_key`s.
 - **APK size:** local mode still adds about 43 MB. An API-only build that
   skips `build_clue_db.py` drops it.
-- **Open question:** is a runtime backend switcher wanted in v1, or is
-  build-time config enough? This plan assumes build-time config is enough.
+- **Decided:** build-time config is enough for v1. A runtime backend switcher
+  is left for later (§9).
