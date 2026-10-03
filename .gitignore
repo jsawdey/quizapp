@@ -52,5 +52,9 @@ __pycache__/
 *.pyc
 
 # Jeopardy clue dataset and generated database (personal use only; never commit)
-data/
-assets/db/
+/data/
+assets/db/*
+!assets/db/.gitkeep
+
+# Local question source settings (see config/question_source.example.json)
+config/question_source.json

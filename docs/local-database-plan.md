@@ -124,6 +124,11 @@ The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
 
 ## 4. App changes
 
+> **Superseded** by [question-backend-plan.md](question-backend-plan.md), which
+> makes the backend selectable (local database, an API, or an API with the
+> local database as a fallback) and has been carried out. This section and
+> section 6 are kept for history.
+
 ### Step 1: Dependencies and assets
 - `pubspec.yaml`: add `sqflite` and `path_provider`, and list
   `assets/db/clues.db` as an asset.
@@ -202,6 +207,8 @@ The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
   the data changes easy to review.
 
 ## 6. Suggested commit order
+
+> **Superseded**: see section 13 of [question-backend-plan.md](question-backend-plan.md).
 1. ~~Add `tool/build_clue_db.py` and its tests, and update `.gitignore`~~ (done)
 2. ~~Upgrade the Flutter toolchain and migrate to null safety~~ (done)
 3. Add `ClueDatabase`, `QuestionSource`, `LocalQuestionSource` and the updated model, with tests

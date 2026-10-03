@@ -1,10 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:quizapp/config/source_factory.dart';
+import 'package:quizapp/controller/question_repository.dart';
+import 'package:quizapp/data/hidden_question_store.dart';
 import 'quiz_page.dart';
 
-void main() => runApp(const QuizApp());
+void main() {
+  final repository = QuestionRepository(
+    source: questionSourceFromEnvironment(),
+    hiddenStore: SqfliteHiddenQuestionStore(),
+  );
+  runApp(QuizApp(repository: repository));
+}
 
 class QuizApp extends StatelessWidget {
-  const QuizApp({super.key});
+  const QuizApp({super.key, required this.repository});
+
+  final QuestionRepository repository;
 
   // This widget is the root of your application.
   @override
@@ -16,7 +27,7 @@ class QuizApp extends StatelessWidget {
         primarySwatch: Colors.blue,
         useMaterial3: false,
       ),
-      home: const QuizPage(title: 'Random Trivia Question'),
+      home: QuizPage(title: 'Random Trivia Question', repository: repository),
     );
   }
 }

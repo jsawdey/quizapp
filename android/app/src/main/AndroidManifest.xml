@@ -1,4 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Needed when the app is built to read questions from an API
+         (QUESTION_SOURCE=api); see README.md. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="jeopardy_fun"
         android:name="${applicationName}"

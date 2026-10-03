@@ -1,6 +1,7 @@
 """Tests for build_clue_db.py. Run with: python3 -m unittest discover tool"""
 
 import hashlib
+import json
 import sqlite3
 import sys
 import tempfile
@@ -137,7 +138,15 @@ class BuildClueDbTest(unittest.TestCase):
         self.assertEqual(meta['dataset_version'], 'test')
         self.assertEqual(meta['source_sha256'], 'abc123')
         self.assertEqual(meta['clue_count'], '6')
+        self.assertEqual(meta['dataset_namespace'], 'jwolle1')
         self.assertIn('built_at', meta)
+
+    def test_version_file_matches_meta(self):
+        self.build()
+        version = json.loads((self.db.parent / 'clues.version').read_text(encoding='utf-8'))
+        self.assertEqual(version, dict(self.query('SELECT key, value FROM meta')))
+        self.assertEqual(sorted(p.name for p in self.db.parent.iterdir()),
+                         ['clues.db', 'clues.version'])
 
     def test_rejects_unexpected_columns(self):
         write_tsv(self.tsv, [], header='round\tvalue')
