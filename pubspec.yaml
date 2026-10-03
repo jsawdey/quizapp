@@ -1,5 +1,5 @@
 name: quizapp
-description: A fun quiz app written in Flutter that utilizes jService (jservice.io) to retrieve questions/answers.
+description: A Jeopardy-style quiz app with questions from a local clue database or an HTTP API.
 
 publish_to: 'none'
 version: 1.0.0+1

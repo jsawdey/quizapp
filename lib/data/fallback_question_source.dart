@@ -85,11 +85,18 @@ class FallbackQuestionSource extends QuestionSource {
     }
   }
 
-  /// Reports to whichever source served [question], if it supports reports.
+  QuestionSource _servedBy(JeopardyQuestion question) =>
+      _fromFallback[question] == true ? fallback : primary;
+
+  /// Whether the source that served [question] can report it.
+  @override
+  bool canReport(JeopardyQuestion question) => _servedBy(question).canReport(question);
+
+  /// Reports to whichever source served [question], if it can.
   @override
   Future<void> reportRemote(JeopardyQuestion question) async {
-    final source = _fromFallback[question] == true ? fallback : primary;
-    if (source.supportsRemoteReport) await source.reportRemote(question);
+    final source = _servedBy(question);
+    if (source.canReport(question)) await source.reportRemote(question);
   }
 
   @override

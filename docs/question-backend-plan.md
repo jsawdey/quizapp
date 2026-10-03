@@ -362,11 +362,13 @@ pass at every commit. The SessionStart hook already installs everything needed.
 4. ~~**Self-hosting.** Add `tool/serve_clues.py` and its tests.~~ (done; also
    `test/serve_clues_contract_test.dart`, which runs the app's HTTP source
    against it)
-5. **UI and docs.** Add the error and Retry states, the Hide wording, Final
+5. ~~**UI and docs.** Add the error and Retry states, the Hide wording, Final
    Jeopardy and the category comment, and the offline icon. Update the README
    (backend options, config file, self-hosting, personal-use note) and the
    `pubspec.yaml` description. Point sections 4 and 6 of
-   `local-database-plan.md` at this plan.
+   `local-database-plan.md` at this plan.~~ (done; also scales long clues and
+   categories to fit their panels, and the hide dialog only mentions
+   reporting when that question will be reported)
 
 ## 14. Risks and open questions
 

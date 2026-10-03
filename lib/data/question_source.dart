@@ -67,14 +67,17 @@ abstract class QuestionSource {
 
   bool get supportsRemoteReport => false;
 
+  /// Whether hiding [question] reports it to the backend too.
+  bool canReport(JeopardyQuestion question) => supportsRemoteReport;
+
   /// Prepares the source. May throw [SourceUnavailable].
   Future<void> open() async {}
 
   /// Throws [SourceUnavailable] or [NoQuestionFound].
   Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any});
 
-  /// Tells the backend a question is bad. Only called when
-  /// [supportsRemoteReport] is true.
+  /// Tells the backend a question is bad. Only called when [canReport] is
+  /// true for it.
   Future<void> reportRemote(JeopardyQuestion question) async {}
 
   Future<void> close() async {}

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import 'package:quizapp/data/fallback_question_source.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
 import 'package:quizapp/data/question_source.dart';
 import 'package:quizapp/model/question.dart';
@@ -40,15 +41,25 @@ class QuestionRepository {
     throw const NoQuestionFound('Every question tried has been hidden.');
   }
 
-  bool get supportsRemoteReport => source.supportsRemoteReport;
+  /// Whether hiding [question] also reports it to the source.
+  bool canReport(JeopardyQuestion question) => source.canReport(question);
 
-  /// Hides [question] on this device, then reports it to the source if the
-  /// source supports that. A failed report is only logged: hiding still works
-  /// offline.
+  /// Where reports go, for the hide dialog.
+  String get reportTarget => source.description;
+
+  /// Whether questions are coming from the fallback source because the main
+  /// one is unavailable.
+  bool get usingFallback {
+    final source = this.source;
+    return source is FallbackQuestionSource && source.usingFallback;
+  }
+
+  /// Hides [question] on this device, then reports it to the source if it can
+  /// be. A failed report is only logged: hiding still works offline.
   Future<void> hide(JeopardyQuestion question) async {
     await open();
     await hiddenStore.hide(question);
-    if (source.supportsRemoteReport) {
+    if (source.canReport(question)) {
       unawaited(source.reportRemote(question).catchError((Object error) {
         debugPrint('Could not report question ${question.key}: $error');
       }));

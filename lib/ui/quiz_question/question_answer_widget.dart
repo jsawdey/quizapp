@@ -7,11 +7,21 @@ class QuestionAnswerWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Center(
-      child: Text(
-        _mainText.toUpperCase(),
-        textAlign: TextAlign.center,
-        style: CustomAppTheme.questionAnswerTextTheme(),
+    // Wrap at the panel's width, then scale down only if the text is taller
+    // than the panel, so long clues are never cut off.
+    return LayoutBuilder(
+      builder: (context, constraints) => Center(
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: SizedBox(
+            width: constraints.maxWidth,
+            child: Text(
+              _mainText.toUpperCase(),
+              textAlign: TextAlign.center,
+              style: CustomAppTheme.questionAnswerTextTheme(),
+            ),
+          ),
+        ),
       ),
     );
   }

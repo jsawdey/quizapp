@@ -1,6 +1,15 @@
 # quizapp
 
-A fun quiz app written in Flutter that utilizes jService (jservice.io) to retrieve questions/answers.
+A fun Jeopardy-style quiz app written in Flutter. It shows a random clue; tap
+it to see the response.
+
+Questions come from a local database of real Jeopardy! clues built from the
+[jwolle1/jeopardy_clue_dataset](https://github.com/jwolle1/jeopardy_clue_dataset),
+or from an HTTP API you point it at (see below). The app used to read from
+jService (jservice.io), which has shut down. The design is in
+[docs/question-backend-plan.md](docs/question-backend-plan.md).
+
+Because of the dataset's terms, this app is for personal use only.
 
 ## Getting Started
 

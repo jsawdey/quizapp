@@ -2,10 +2,13 @@ import 'package:quizapp/data/question_source.dart';
 import 'package:quizapp/model/question.dart';
 
 JeopardyQuestion fakeQuestion(String key, {String sourceId = 'fake',
-    int? round, DateTime? airDate}) =>
+    int? round, DateTime? airDate, int? value = 200, int? dailyDoubleWager,
+    String? category, String? categoryComment}) =>
     JeopardyQuestion(sourceId: sourceId, key: key, question: 'Clue $key',
-        answer: 'Response $key', category: 'Category $key', value: 200,
-        round: round, airDate: airDate, raw: {'key': key});
+        answer: 'Response $key', category: category ?? 'Category $key',
+        value: value, round: round, airDate: airDate,
+        dailyDoubleWager: dailyDoubleWager, categoryComment: categoryComment,
+        raw: {'key': key});
 
 /// Serves [questions] in order, round and round, or throws [error] if set.
 class FakeQuestionSource extends QuestionSource {
@@ -15,6 +18,9 @@ class FakeQuestionSource extends QuestionSource {
   @override
   final bool supportsRemoteReport;
   Object? reportError;
+
+  /// When set, randomQuestion waits for it first.
+  Future<void>? gate;
 
   int _next = 0;
   int opens = 0;
@@ -35,6 +41,8 @@ class FakeQuestionSource extends QuestionSource {
 
   @override
   Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
+    final gate = this.gate;
+    if (gate != null) await gate;
     final e = error;
     if (e != null) throw e;
     if (questions.isEmpty) throw const NoQuestionFound();

@@ -97,9 +97,12 @@ void main() {
     );
     addTearDown(() => tester.runAsync(repository.close));
 
-    String shownClue() =>
-        tester.widget<Text>(find.descendant(
-            of: find.byType(QuestionAnswerWidget), matching: find.byType(Text))).data!;
+    // Empty while the loading indicator is showing.
+    String shownClue() {
+      final text = find.descendant(
+          of: find.byType(QuestionAnswerWidget), matching: find.byType(Text));
+      return text.evaluate().isEmpty ? '' : tester.widget<Text>(text).data!;
+    }
 
     // Database work is real I/O, which only happens outside the fake clock.
     Future<void> waitForClueOtherThan(String previous) async {
@@ -114,9 +117,9 @@ void main() {
     final first = shownClue();
     expect(first, isNotEmpty);
 
-    await tester.tap(find.text('Report Question'));
+    await tester.tap(find.widgetWithText(TextButton, 'Hide Question'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Yes'));
+    await tester.tap(find.text('Hide'));
     await waitForClueOtherThan(first);
     expect(shownClue(), isNot(first));
     expect(File(p.join(dir!.path, 'user.db')).existsSync(), isTrue);
