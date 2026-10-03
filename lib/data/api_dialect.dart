@@ -31,8 +31,96 @@ abstract class ApiDialect {
 
 /// The dialects `QUESTION_API_DIALECT` can name.
 final Map<String, ApiDialect Function()> apiDialects = {
+  'quizapp': QuizApiDialect.new,
   'jservice': JServiceDialect.new,
 };
+
+/// This app's own API (v1), described in docs/question-backend-plan.md and
+/// served by tool/serve_clues.py. Its fields are the clue database's columns.
+class QuizApiDialect extends ApiDialect {
+  static const maxCount = 50;
+
+  @override
+  String get name => 'quizapp';
+
+  @override
+  bool get filtersOnServer => true;
+
+  @override
+  Uri randomUri(Uri base, int count, QuestionFilter filter) {
+    final rounds = filter.rounds;
+    return ApiDialect.endpoint(base, 'v1/random', {
+      'count': count.clamp(1, maxCount).toString(),
+      if (rounds != null) 'round': (rounds.toList()..sort()).join(','),
+      if (filter.from != null) 'from': isoDate(filter.from!),
+      if (filter.to != null) 'to': isoDate(filter.to!),
+    });
+  }
+
+  @override
+  List<JeopardyQuestion> parseRandom(Object? json, Uri base) {
+    const shapeError = FormatException('Expected an object with a "questions" list');
+    if (json is! Map<String, dynamic>) throw shapeError;
+    final questions = json['questions'];
+    if (questions is! List) throw shapeError;
+    final namespace = json['namespace'];
+    final sourceId = namespace is String && namespace.isNotEmpty
+        ? namespace
+        : 'quizapp:${base.host}';
+    final parsed = <JeopardyQuestion>[];
+    for (final item in questions) {
+      final question = _parse(item, sourceId);
+      if (question != null) parsed.add(question);
+    }
+    return parsed;
+  }
+
+  static JeopardyQuestion? _parse(Object? item, String sourceId) {
+    if (item is! Map<String, dynamic>) return null;
+    final key = item['key'];
+    final clue = item['clue'];
+    final response = item['response'];
+    final category = item['category'];
+    if ((key is! String && key is! int) || clue is! String || response is! String ||
+        category is! String) {
+      return null;
+    }
+    final clueText = JeopardyQuestion.sanitize(clue).trim();
+    final responseText = JeopardyQuestion.sanitize(response).trim();
+    if ('$key'.isEmpty || clueText.isEmpty || responseText.isEmpty) return null;
+    final round = _int(item['round']);
+    final value = _int(item['value']);
+    final wager = _int(item['dd_wager']);
+    final airDate = item['air_date'];
+    return JeopardyQuestion(
+      sourceId: sourceId,
+      key: '$key',
+      question: clueText,
+      answer: responseText,
+      category: JeopardyQuestion.sanitize(category).trim(),
+      // Final Jeopardy clues have value 0.
+      value: round == 3 ? null : value,
+      round: round,
+      airDate: airDate is String ? DateTime.tryParse(airDate) : null,
+      dailyDoubleWager: wager == 0 ? null : wager,
+      categoryComment: _text(item['category_comment']),
+      notes: _text(item['notes']),
+      raw: item,
+    );
+  }
+
+  static int? _int(Object? value) => value is int ? value : null;
+
+  static String? _text(Object? value) =>
+      value is String && value.trim().isNotEmpty ? value.trim() : null;
+
+  @override
+  bool get supportsReport => true;
+
+  @override
+  Uri reportUri(Uri base, JeopardyQuestion question) =>
+      ApiDialect.endpoint(base, 'v1/questions/${Uri.encodeComponent(question.key)}/report');
+}
 
 /// The original jService API (`/api/random`, `/api/invalid`), as served by
 /// self-hosted copies of jService and clones that kept its routes.

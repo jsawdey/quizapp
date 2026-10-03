@@ -68,11 +68,11 @@ class LocalQuestionSource extends QuestionSource {
     }
     if (filter.from != null) {
       where.add('g.air_date >= ?');
-      args.add(_isoDate(filter.from!));
+      args.add(isoDate(filter.from!));
     }
     if (filter.to != null) {
       where.add('g.air_date <= ?');
-      args.add(_isoDate(filter.to!));
+      args.add(isoDate(filter.to!));
     }
     final sql = '$_select WHERE ${where.join(' AND ')} ORDER BY c.id LIMIT 1';
 
@@ -103,11 +103,6 @@ class LocalQuestionSource extends QuestionSource {
       raw: Map.of(row),
     );
   }
-
-  static String _isoDate(DateTime date) =>
-      '${date.year.toString().padLeft(4, '0')}-'
-      '${date.month.toString().padLeft(2, '0')}-'
-      '${date.day.toString().padLeft(2, '0')}';
 
   @override
   Future<void> close() async {

@@ -39,11 +39,20 @@ Questions come from the local clue database by default, so after building it
 flutter run --dart-define-from-file=config/question_source.json
 ```
 
-- `QUESTION_SOURCE`: `local` (default) or `api`.
-- `QUESTION_API_URL`: the API's base URL. Release builds require `https`.
-- `QUESTION_API_DIALECT`: which API it is: `jservice` (the original jService
-  routes, as served by self-hosted copies and clones).
+- `QUESTION_SOURCE`: `local` (default), `api`, or `api_with_local_fallback`
+  (the API, switching to the local database while the API is unreachable and
+  trying the API again after a minute).
+- `QUESTION_API_URL`: the API's base URL. Release builds require `https`;
+  debug and profile builds also allow `http`, for a server on your local network.
+- `QUESTION_API_DIALECT`: which API it is:
+  - `quizapp`: this app's own API, described in
+    [docs/question-backend-plan.md](docs/question-backend-plan.md) (§7).
+  - `jservice`: the original jService routes, as served by self-hosted copies
+    and clones.
 - `QUESTION_API_TOKEN`: optional bearer token. It is compiled into the app.
 
 An app built without the clue database (for API use) leaves out its ~43 MB;
-if it is set to `local` it says the database is missing.
+if it is set to `local` it says the database is missing. With
+`api_with_local_fallback` it only needs the database while the API is down.
+Questions you hide stay hidden across the local database and a `quizapp` API
+serving the same dataset.

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:quizapp/config/source_config.dart';
 import 'package:quizapp/config/source_factory.dart';
 import 'package:quizapp/data/api_dialect.dart';
+import 'package:quizapp/data/fallback_question_source.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/local_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
@@ -33,8 +34,18 @@ void main() {
           apiDialect: 'jservice').apiToken, isNull);
     });
 
+    test('reads api_with_local_fallback', () {
+      final config = SourceConfig.parse(source: 'api_with_local_fallback',
+          apiUrl: 'https://x.example', apiDialect: 'quizapp');
+      expect(config.kind, SourceKind.apiWithLocalFallback);
+      expect(config.apiDialect, 'quizapp');
+      expect(() => SourceConfig.parse(source: 'api_with_local_fallback'),
+          configError('QUESTION_SOURCE is "api_with_local_fallback"'));
+    });
+
     test('rejects an unknown source', () {
-      expect(() => SourceConfig.parse(source: 'cloud'), configError('local, api'));
+      expect(() => SourceConfig.parse(source: 'cloud'),
+          configError('local, api, api_with_local_fallback'));
     });
 
     test('api needs a usable URL', () {
@@ -71,6 +82,16 @@ void main() {
           .having((s) => s.dialect, 'dialect', isA<JServiceDialect>())
           .having((s) => s.baseUrl, 'baseUrl', Uri.parse('https://x.example'))
           .having((s) => s.token, 'token', 'abc'));
+    });
+
+    test('api with local fallback', () {
+      final source = createQuestionSource(SourceConfig.parse(
+          source: 'api_with_local_fallback', apiUrl: 'https://x.example',
+          apiDialect: 'quizapp'));
+      expect(source, isA<FallbackQuestionSource>()
+          .having((s) => s.primary, 'primary', isA<HttpQuestionSource>()
+              .having((s) => s.dialect, 'dialect', isA<QuizApiDialect>()))
+          .having((s) => s.fallback, 'fallback', isA<LocalQuestionSource>()));
     });
 
     test('an unavailable source reports why', () async {

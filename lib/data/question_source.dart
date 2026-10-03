@@ -33,6 +33,13 @@ class QuestionFilter {
       rounds == null ? null : Object.hashAllUnordered(rounds!), from, to);
 }
 
+/// [date] as `YYYY-MM-DD`, the format air dates use in filters and the
+/// clue database.
+String isoDate(DateTime date) =>
+    '${date.year.toString().padLeft(4, '0')}-'
+    '${date.month.toString().padLeft(2, '0')}-'
+    '${date.day.toString().padLeft(2, '0')}';
+
 /// The backend is unreachable or broken: network down, missing database,
 /// server error. A fallback source may take over.
 class SourceUnavailable implements Exception {

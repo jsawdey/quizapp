@@ -1,5 +1,6 @@
 import 'package:quizapp/config/source_config.dart';
 import 'package:quizapp/data/api_dialect.dart';
+import 'package:quizapp/data/fallback_question_source.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/local_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
@@ -11,13 +12,17 @@ QuestionSource createQuestionSource(SourceConfig config) {
     case SourceKind.local:
       return LocalQuestionSource();
     case SourceKind.api:
-      return HttpQuestionSource(
-        baseUrl: config.apiUrl!,
-        dialect: apiDialects[config.apiDialect]!(),
-        token: config.apiToken,
-      );
+      return _api(config);
+    case SourceKind.apiWithLocalFallback:
+      return FallbackQuestionSource(primary: _api(config), fallback: LocalQuestionSource());
   }
 }
+
+HttpQuestionSource _api(SourceConfig config) => HttpQuestionSource(
+      baseUrl: config.apiUrl!,
+      dialect: apiDialects[config.apiDialect]!(),
+      token: config.apiToken,
+    );
 
 /// Builds the source this build was configured with. A bad configuration
 /// gives a source whose [QuestionSource.open] fails with the problem, so the

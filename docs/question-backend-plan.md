@@ -318,11 +318,14 @@ flutter run                      # no file -> local (the default)
   to `android/app/src/main/AndroidManifest.xml`. Without it, API mode fails in
   release. Giving local-only builds the permission too is harmless. Add a
   `network_security_config` in the `debug/` source set only, allowing
-  cleartext to LAN addresses for `serve_clues.py` during development.
-  Release builds stay HTTPS-only.
+  cleartext for `serve_clues.py` during development (done as
+  `usesCleartextTraffic` in the `debug/` and `profile/` manifests, since a
+  network security config can't name IP ranges). Release builds stay
+  HTTPS-only.
 - **iOS:** add `NSAppTransportSecurity` → `NSAllowsLocalNetworking = true` to
-  `ios/Runner/Info.plist` so the app can reach a server on the LAN.
-  Public hosts stay HTTPS-only.
+  `ios/Runner/Info.plist` so the app can reach a server on the LAN, plus
+  `NSLocalNetworkUsageDescription`, which iOS 14+ shows when asking for
+  local network access. Public hosts stay HTTPS-only.
 
 ## 12. Tests
 
@@ -353,8 +356,8 @@ pass at every commit. The SessionStart hook already installs everything needed.
    meta row, and `SourceConfig` and the factory, with `local` as the default.
    Because `api` can already be selected, the `INTERNET` permission moved here
    from step 3. Add tests.
-3. **API mode.** Add `QuizApiDialect`, `FallbackQuestionSource`, the
-   debug network config and the iOS ATS key. Add tests.
+3. ~~**API mode.** Add `QuizApiDialect`, `FallbackQuestionSource`, the
+   debug network config and the iOS ATS key.~~ (done) Add tests.
 4. **Self-hosting.** Add `tool/serve_clues.py` and its tests.
 5. **UI and docs.** Add the error and Retry states, the Hide wording, Final
    Jeopardy and the category comment, and the offline icon. Update the README

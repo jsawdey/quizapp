@@ -27,6 +27,7 @@ class HttpQuestionSource extends QuestionSource {
   final Queue<JeopardyQuestion> _buffer = Queue();
   QuestionFilter _bufferFilter = QuestionFilter.any;
   Future<void>? _refill;
+  QuestionFilter? _refillFilter;
 
   HttpQuestionSource({required this.baseUrl, required this.dialect, this.token,
     this.timeout = const Duration(seconds: 8), http.Client? client})
@@ -61,18 +62,27 @@ class HttpQuestionSource extends QuestionSource {
       if (fetches == maxFetchesPerQuestion) {
         throw NoQuestionFound('$description returned no question matching the filter.');
       }
-      await (_refill ?? _fetchBatch(filter));
+      final refill = _refill;
+      if (refill != null && _refillFilter == filter) {
+        await refill;
+      } else if (await _fetchBatch(filter) == 0 && dialect.filtersOnServer) {
+        // The server applied the filter and found nothing.
+        throw NoQuestionFound('$description has no question matching the filter.');
+      }
     }
   }
 
   void _refillInBackground(QuestionFilter filter) {
-    _refill ??= _fetchBatch(filter).catchError((Object error) {
+    if (_refill != null) return;
+    _refillFilter = filter;
+    _refill = _fetchBatch(filter).then<void>((_) {}, onError: (Object error) {
       // The next randomQuestion call fetches again and reports the error.
       debugPrint('Background refill from $description failed: $error');
     }).whenComplete(() => _refill = null);
   }
 
-  Future<void> _fetchBatch(QuestionFilter filter) async {
+  /// Fetches one batch into the buffer and returns how many questions it added.
+  Future<int> _fetchBatch(QuestionFilter filter) async {
     final uri = dialect.randomUri(baseUrl, batchSize, filter);
     final body = await _send(() => _client.get(uri, headers: _headers));
     final List<JeopardyQuestion> questions;
@@ -82,7 +92,9 @@ class HttpQuestionSource extends QuestionSource {
       throw SourceUnavailable('$description sent an unexpected response: ${e.message}');
     }
     // Drop the batch if the filter changed while it was in flight.
-    if (filter == _bufferFilter) _buffer.addAll(questions);
+    if (filter != _bufferFilter) return 0;
+    _buffer.addAll(questions);
+    return questions.length;
   }
 
   @override

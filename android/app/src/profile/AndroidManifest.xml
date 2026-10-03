@@ -4,4 +4,8 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Lets debug and profile builds reach a question API over plain http,
+         such as tool/serve_clues.py on the local network. Release builds
+         require https (see lib/config/source_config.dart). -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>

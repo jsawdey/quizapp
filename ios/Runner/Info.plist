@@ -66,5 +66,14 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<!-- Lets debug builds reach a question API over plain http on the local
+		     network (tool/serve_clues.py). Other hosts still require https. -->
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Loads trivia questions from a server on your local network, if you set one up.</string>
 </dict>
 </plist>
