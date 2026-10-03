@@ -54,22 +54,24 @@ Add `tool/build_clue_db.py`. It uses only the Python standard library
    it's already there. Check the SHA-256 and stop if it doesn't match.
    Command-line flags let you choose a different file or expected hash for a new release.
 2. **Read** the file with `csv.DictReader(delimiter='\t', quoting=csv.QUOTE_NONE)`.
-3. **Clean** each row: remove `\"` and `\'` escapes, trim whitespace, and drop
-   any row whose clue or response is empty.
+3. **Clean** each row: remove `\"` and `\'` escapes and any stray backslashes
+   (a handful of typos like `pre\valent`), collapse whitespace, and drop any row
+   whose category, clue or response is empty.
 4. **Normalize** into the tables below and write `assets/db/clues.db`. Then
    `VACUUM` it and record the dataset version and row counts in a `meta` table.
+   It builds into a temporary file first, so a failed run leaves any existing database untouched.
 5. Print a summary (counts by round, number of dropped rows, file size) so
    anyone building it can sanity-check the result.
 
 Schema:
 
 ```sql
-CREATE TABLE meta       (key TEXT PRIMARY KEY, value TEXT);   -- dataset_version, source_sha256, built_at, schema_version
+CREATE TABLE meta       (key TEXT PRIMARY KEY, value TEXT NOT NULL);   -- dataset_version, source_sha256, built_at, schema_version
 CREATE TABLE games      (id INTEGER PRIMARY KEY, air_date TEXT NOT NULL UNIQUE);
 CREATE TABLE categories (id INTEGER PRIMARY KEY, name TEXT NOT NULL UNIQUE);
 CREATE TABLE clues (
   id           INTEGER PRIMARY KEY,      -- numbered 1..N with no gaps, so a random id can be picked cheaply
-  clue_key     TEXT NOT NULL UNIQUE,     -- sha1(air_date|round|category|clue); stays the same across rebuilds
+  clue_key     INTEGER NOT NULL,         -- first 8 bytes of sha1(air_date|round|value|category|clue); stays the same across rebuilds
   game_id      INTEGER NOT NULL REFERENCES games(id),
   category_id  INTEGER NOT NULL REFERENCES categories(id),
   round        INTEGER NOT NULL,         -- 1, 2, 3
@@ -83,12 +85,16 @@ CREATE TABLE clues (
 CREATE INDEX clues_round ON clues(round);
 ```
 
-- A trial build of a schema like this came to about **69 MB** (about 34 MB
-  gzipped, which is roughly how much it adds to an APK).
+- The full v42 build is **87 MB** (43 MB gzipped, which is roughly how much it
+  adds to an APK). The build takes about 15 seconds.
+- `clue_key` is a 64-bit integer with no index. A 40-character hex key plus a
+  unique index would add about 45 MB, and the app never looks clues up by key.
+  The script rejects duplicates itself. The value is part of the key because
+  one 2012 category has several clues with identical text.
 - `.gitignore`: add `data/` and `assets/db/`.
 - Tests: `tool/test_build_clue_db.py` runs the script on a small sample TSV and
   checks the escape cleanup, the swap of `answer`/`question`, that `clue_key`
-  stays the same between builds, and the row counts.
+  stays the same between builds, and the row counts. **(Done.)**
 
 ## 3. Flutter toolchain upgrade (prerequisite)
 
@@ -170,7 +176,7 @@ The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
   dataset, and add the personal-use note from the top of this plan.
 
 ## 5. Risks and trade-offs
-- **App size:** about 34 MB compressed in the APK, and about 69 MB on the device
+- **App size:** about 43 MB compressed in the APK, and about 87 MB on the device
   after the first-launch copy. If that's too much, the script could take a
   `--seasons` flag to build a smaller subset (one season is about 14k clues).
 - **Updating the data:** new episodes arrive only when you rebuild and
@@ -182,8 +188,8 @@ The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
   the data changes easy to review.
 
 ## 6. Suggested commit order
-1. Upgrade the Flutter toolchain and migrate to null safety
-2. Add `tool/build_clue_db.py` and its tests, and update `.gitignore`
+1. ~~Add `tool/build_clue_db.py` and its tests, and update `.gitignore`~~ (done)
+2. Upgrade the Flutter toolchain and migrate to null safety
 3. Add `ClueDatabase`, `QuestionSource`, `LocalQuestionSource` and the updated model, with tests
 4. Switch the UI and reporting over, then delete `jservice_api.dart`
 5. Update the README and pubspec
