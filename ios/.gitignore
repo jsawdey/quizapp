@@ -42,3 +42,5 @@ Icon?
 /ServiceDefinitions.json
 
 Pods/
+/Flutter/ephemeral/
+/Flutter/flutter_export_environment.sh
