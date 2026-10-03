@@ -115,6 +115,7 @@ works (minSdk 24, target SDK 36).
 The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
 `HttpStatus.OK`, and no null safety). Current versions of `sqflite` and
 `path_provider` require Dart 3, so upgrade first, in its own commit:
+
 - Run on the current stable Flutter, migrate to null safety, and update
   `intl`, the Android Gradle/AGP setup and the iOS project.
 - Replace deprecated widgets (`FlatButton` → `TextButton`) and remove `new`.
@@ -130,24 +131,29 @@ The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
 > section 6 are kept for history.
 
 ### Step 1: Dependencies and assets
+
 - `pubspec.yaml`: add `sqflite` and `path_provider`, and list
   `assets/db/clues.db` as an asset.
 - Update the README's build steps:
   `python3 tool/build_clue_db.py && flutter run`.
 
 ### Step 2: Opening the database (`lib/data/clue_database.dart`)
+
 - SQLite can't open a database directly from Flutter assets. So on first launch,
   copy `assets/db/clues.db` into the app support folder and open it **read-only**.
 - When the bundled `meta.dataset_version` is newer than the installed copy's,
   copy it again. That's how a new season's data reaches the app.
 - Keep **user data in a separate database** (`user.db`, read-write), so
   updating the clue database never erases it:
+
   ```sql
   CREATE TABLE reported (clue_key TEXT PRIMARY KEY, reported_at TEXT NOT NULL);
   ```
+
   It's keyed by `clue_key`, not `id`, so reports still apply after a rebuild renumbers the clues.
 
 ### Step 3: `QuestionSource` interface and local version
+
 - `lib/controller/question_source.dart`: an abstract `QuestionSource` with
   `Future<JeopardyQuestion> randomQuestion()` and `Future<void> report(JeopardyQuestion q)`.
 - `LocalQuestionSource` implements it:
@@ -163,6 +169,7 @@ The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
   (an API or a downloaded update) then only has to implement the interface.
 
 ### Step 4: Model (`lib/model/question.dart`)
+
 - Replace `fromJson` with `JeopardyQuestion.fromRow(Map<String, Object?> row)`.
 - Add fields: `clueKey`, `round`, `dailyDoubleWager`, `categoryComment`, `notes`.
 - `airDate` is always present now, so `DateTime.parse(air_date)` is safe.
@@ -172,6 +179,7 @@ The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
 - `rawJson` becomes the row map, so the info overlay keeps working without changes.
 
 ### Step 5: UI (`lib/quiz_page.dart` and the widgets)
+
 - Point the page at the new `QuestionRepository`. Show a loading state while the
   database is first copied (a few seconds on first launch), and show an error if it fails.
 - "Report Question" → `report()`. It stays a one-tap action. Rename the dialog
@@ -182,6 +190,7 @@ The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
   main manifest. It's no longer needed outside debug builds.
 
 ### Step 6: Tests
+
 - `test/question_test.dart`: `fromRow` with a regular clue, a Final Jeopardy
   clue and a Daily Double.
 - `test/local_question_source_test.dart`: use `sqflite_common_ffi` with a small
@@ -191,10 +200,12 @@ The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
   that uses a fake `QuestionSource`.
 
 ### Step 7: Clean up docs and metadata
+
 - Change "jService (jservice.io)" in `README.md` and `pubspec.yaml`, credit the
   dataset, and add the personal-use note from the top of this plan.
 
 ## 5. Risks and trade-offs
+
 - **App size:** about 43 MB compressed in the APK, and about 87 MB on the device
   after the first-launch copy. If that's too much, the script could take a
   `--seasons` flag to build a smaller subset (one season is about 14k clues).
@@ -209,6 +220,7 @@ The app still uses early Dart 2 code (`new`, `intl ^0.15.6`,
 ## 6. Suggested commit order
 
 > **Superseded**: see section 13 of [question-backend-plan.md](question-backend-plan.md).
+
 1. ~~Add `tool/build_clue_db.py` and its tests, and update `.gitignore`~~ (done)
 2. ~~Upgrade the Flutter toolchain and migrate to null safety~~ (done)
 3. Add `ClueDatabase`, `QuestionSource`, `LocalQuestionSource` and the updated model, with tests
