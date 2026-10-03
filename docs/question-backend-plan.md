@@ -251,8 +251,9 @@ A server that uses only the Python standard library (`http.server` and
 
 - `--db`, `--host` (**default `127.0.0.1`**), `--port 8080`, `--token`.
   Pass `--host 0.0.0.0` to reach it from a phone on the same LAN.
-- Reports go into a separate `reports.db`, so the clue database stays read-only
-  and can be rebuilt freely.
+- Reports go into a separate `data/reports.db`, so the clue database stays
+  read-only and can be rebuilt freely. (Not next to `clues.db`: everything
+  in `assets/db/` is bundled into the app.)
 - **Personal use:** the help text and README warn against putting it on the
   public internet, because of the dataset's terms (see the local plan).
 - Why bother: an API-only phone build drops about 43 MB from the APK, and one
@@ -358,7 +359,9 @@ pass at every commit. The SessionStart hook already installs everything needed.
    from step 3. Add tests.
 3. ~~**API mode.** Add `QuizApiDialect`, `FallbackQuestionSource`, the
    debug network config and the iOS ATS key.~~ (done) Add tests.
-4. **Self-hosting.** Add `tool/serve_clues.py` and its tests.
+4. ~~**Self-hosting.** Add `tool/serve_clues.py` and its tests.~~ (done; also
+   `test/serve_clues_contract_test.dart`, which runs the app's HTTP source
+   against it)
 5. **UI and docs.** Add the error and Retry states, the Hide wording, Final
    Jeopardy and the category comment, and the offline icon. Update the README
    (backend options, config file, self-hosting, personal-use note) and the
@@ -376,5 +379,10 @@ pass at every commit. The SessionStart hook already installs everything needed.
   jService clone's ids can't be matched to `clue_key`s.
 - **APK size:** local mode still adds about 43 MB. An API-only build that
   skips `build_clue_db.py` drops it.
+- **Decided:** release builds stay https-only, so `serve_clues.py` (plain
+  http) is used from debug or profile builds. For release builds the README
+  documents putting HTTPS in front of it (Tailscale serve, or Caddy with a
+  domain you own); private certificates don't work, because Android apps
+  don't trust user-installed CAs by default.
 - **Decided:** build-time config is enough for v1. A runtime backend switcher
   is left for later (§9).

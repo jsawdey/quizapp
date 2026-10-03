@@ -56,3 +56,62 @@ if it is set to `local` it says the database is missing. With
 `api_with_local_fallback` it only needs the database while the API is down.
 Questions you hide stay hidden across the local database and a `quizapp` API
 serving the same dataset.
+
+## Serving questions from your own computer
+
+`tool/serve_clues.py` serves the clue database over the `quizapp` API, using
+only the Python standard library. One server can feed several devices, a phone
+build can leave out the database, and a question hidden on one device is
+hidden on all of them.
+
+```
+python3 tool/build_clue_db.py
+python3 tool/serve_clues.py --host 0.0.0.0 --token SOME-SECRET
+```
+
+By default it listens on `127.0.0.1:8080`; `--host 0.0.0.0` makes it
+reachable from your local network. Reported questions are kept in
+`data/reports.db`. Run it with `--help` for the other options. Its tests run
+with the other tool tests; `test/serve_clues_contract_test.dart` checks the
+app against it.
+
+**Personal use only.** The dataset's terms rule out public-facing use, so keep
+the server on your own network, never the internet. The token is a light
+guard, not real security.
+
+Point a **debug or profile** build at it over plain `http`:
+
+```json
+{
+  "QUESTION_SOURCE": "api_with_local_fallback",
+  "QUESTION_API_URL": "http://192.168.1.20:8080",
+  "QUESTION_API_DIALECT": "quizapp",
+  "QUESTION_API_TOKEN": "SOME-SECRET"
+}
+```
+
+```
+flutter run --profile --dart-define-from-file=config/question_source.json
+```
+
+### Release builds need HTTPS
+
+Release builds refuse plain `http`, so put a server with a real (publicly
+trusted) certificate in front of `serve_clues.py`. Self-signed certificates
+and private certificate authorities won't work: Android apps don't trust
+user-installed certificates by default. Two ways that keep the server off the
+public internet:
+
+- **Tailscale.** On the computer running `serve_clues.py` (left on
+  `127.0.0.1`), run `tailscale serve --bg 8080`. That serves it at
+  `https://<computer>.<tailnet>.ts.net` with a valid certificate, reachable
+  only from your own Tailscale devices. Use that address as
+  `QUESTION_API_URL`. See Tailscale's
+  [serve docs](https://tailscale.com/kb/1312/serve).
+- **Caddy with your own domain.** Give the server a name in a domain you own
+  that resolves to its LAN address, and run [Caddy](https://caddyserver.com/)
+  as a reverse proxy to `localhost:8080`. Because the name points at a private
+  address, Caddy needs the DNS challenge (a build with your DNS provider's
+  plugin) to get its certificate; see Caddy's
+  [automatic HTTPS docs](https://caddyserver.com/docs/automatic-https#dns-challenge).
+
