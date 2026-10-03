@@ -164,9 +164,17 @@ CREATE TABLE hidden (
 ## 5. `LocalQuestionSource`
 
 This is the same as steps 2–3 of the local plan: copy the asset into the app
-support folder on first launch, copy it again when the bundled
-`meta.dataset_version` or `schema_version` is newer, open it read-only, and
-pick a random id between 1 and `max(id)`. Changes:
+support folder on first launch, open it read-only, and pick a random id
+between 1 and `max(id)`. Changes:
+
+- **Version check without reading the database.** The build script also
+  writes `clues.version` (the `meta` rows as JSON) next to `clues.db`. The
+  app copies the database again whenever the bundled version file differs
+  from the installed one, so any rebuild reaches the app, and launches never
+  load the ~87 MB asset just to compare versions. The installed version file
+  is deleted before copying and written last, so an interrupted copy is
+  redone. A database with an unsupported `schema_version` is refused with a
+  "rebuild it" message.
 
 - **The database asset is optional.** `pubspec.yaml` lists the directory
   `assets/db/` instead of the file. A committed `assets/db/.gitkeep` is kept
@@ -334,17 +342,19 @@ pass at every commit. The SessionStart hook already installs everything needed.
 
 ## 13. Suggested commit order
 
-1. **Seam, without changing behaviour.** Add the model, `QuestionSource`,
+1. ~~**Seam, without changing behaviour.**~~ (done) Add the model, `QuestionSource`,
    `QuestionRepository`, `HiddenQuestionStore` and `HttpQuestionSource` +
    `JServiceDialect` (the old client, reshaped). Inject the repository into
    `QuizPage`, delete `jservice_api.dart`, add `http`, `sqflite`,
    `path_provider` and `sqflite_common_ffi` (dev), and write the tests. The app
    behaves exactly as it does today: it still points at jService, which is dead.
-2. **Local source (the app works again).** Add `ClueDatabase`,
+2. ~~**Local source (the app works again).**~~ (done) Add `ClueDatabase`,
    `LocalQuestionSource`, the `assets/db/` directory asset, the `dataset_namespace`
-   meta row, and `SourceConfig` and the factory, with `local` as the default. Add tests.
+   meta row, and `SourceConfig` and the factory, with `local` as the default.
+   Because `api` can already be selected, the `INTERNET` permission moved here
+   from step 3. Add tests.
 3. **API mode.** Add `QuizApiDialect`, `FallbackQuestionSource`, the
-   `INTERNET` permission, the debug network config and the iOS ATS key. Add tests.
+   debug network config and the iOS ATS key. Add tests.
 4. **Self-hosting.** Add `tool/serve_clues.py` and its tests.
 5. **UI and docs.** Add the error and Retry states, the Hide wording, Final
    Jeopardy and the category comment, and the offline icon. Update the README

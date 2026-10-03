@@ -29,6 +29,11 @@ abstract class ApiDialect {
   }
 }
 
+/// The dialects `QUESTION_API_DIALECT` can name.
+final Map<String, ApiDialect Function()> apiDialects = {
+  'jservice': JServiceDialect.new,
+};
+
 /// The original jService API (`/api/random`, `/api/invalid`), as served by
 /// self-hosted copies of jService and clones that kept its routes.
 class JServiceDialect extends ApiDialect {

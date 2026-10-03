@@ -27,3 +27,23 @@ that need a picture, video or audio clip, and writes `assets/db/clues.db`
 (about 87 MB). Run `python3 tool/build_clue_db.py --help`
 for options, such as importing a newer dataset release. The script's tests run
 with `python3 -m unittest discover tool`.
+
+## Choosing the question source
+
+Questions come from the local clue database by default, so after building it
+`flutter run` just works. To read from an HTTP API instead, copy
+`config/question_source.example.json` to `config/question_source.json`
+(git-ignored), fill it in and pass it to Flutter:
+
+```
+flutter run --dart-define-from-file=config/question_source.json
+```
+
+- `QUESTION_SOURCE`: `local` (default) or `api`.
+- `QUESTION_API_URL`: the API's base URL. Release builds require `https`.
+- `QUESTION_API_DIALECT`: which API it is: `jservice` (the original jService
+  routes, as served by self-hosted copies and clones).
+- `QUESTION_API_TOKEN`: optional bearer token. It is compiled into the app.
+
+An app built without the clue database (for API use) leaves out its ~43 MB;
+if it is set to `local` it says the database is missing.

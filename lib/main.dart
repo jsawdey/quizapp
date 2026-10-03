@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:quizapp/config/source_factory.dart';
 import 'package:quizapp/controller/question_repository.dart';
-import 'package:quizapp/data/api_dialect.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
-import 'package:quizapp/data/http_question_source.dart';
 import 'quiz_page.dart';
 
 void main() {
-  // jservice.io is gone; the local clue database replaces it in the next step.
   final repository = QuestionRepository(
-    source: HttpQuestionSource(
-        baseUrl: Uri.parse('http://jservice.io'), dialect: JServiceDialect()),
+    source: questionSourceFromEnvironment(),
     hiddenStore: SqfliteHiddenQuestionStore(),
   );
   runApp(QuizApp(repository: repository));

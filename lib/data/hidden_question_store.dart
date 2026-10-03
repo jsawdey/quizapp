@@ -34,14 +34,15 @@ class InMemoryHiddenQuestionStore implements HiddenQuestionStore {
 /// Stores hidden questions in `user.db`, kept apart from the clue database so
 /// replacing that never loses them. All rows are loaded into memory on open.
 class SqfliteHiddenQuestionStore implements HiddenQuestionStore {
-  final sqflite.DatabaseFactory _databaseFactory;
+  // Resolved on open: sqflite's global factory isn't available off-device.
+  final sqflite.DatabaseFactory? _databaseFactory;
   final Future<String> Function() _path;
   sqflite.Database? _db;
   final Set<String> _hidden = {};
 
   SqfliteHiddenQuestionStore({sqflite.DatabaseFactory? databaseFactory,
     Future<String> Function()? path})
-      : _databaseFactory = databaseFactory ?? sqflite.databaseFactory,
+      : _databaseFactory = databaseFactory,
         _path = path ?? _defaultPath;
 
   static Future<String> _defaultPath() async =>
@@ -50,7 +51,7 @@ class SqfliteHiddenQuestionStore implements HiddenQuestionStore {
   @override
   Future<void> open() async {
     if (_db != null) return;
-    final db = await _databaseFactory.openDatabase(await _path(),
+    final db = await (_databaseFactory ?? sqflite.databaseFactory).openDatabase(await _path(),
         options: sqflite.OpenDatabaseOptions(
           version: 1,
           onCreate: (db, version) => db.execute('''

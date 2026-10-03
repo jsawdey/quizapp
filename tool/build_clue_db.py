@@ -16,6 +16,7 @@ import argparse
 import csv
 import datetime
 import hashlib
+import json
 import os
 import re
 import sqlite3
@@ -27,6 +28,9 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DATASET_VERSION = 'v42'
+# Namespace for clue keys, shared by every database built from this dataset so
+# questions hidden in the app stay hidden across sources and rebuilds.
+DATASET_NAMESPACE = 'jwolle1'
 DATASET_COMMIT = '5a2026f465cfd9f2b80a478bd1993c9a2223befc'
 DATASET_FILE = 'combined_season1-42.tsv'
 DATASET_URL = ('https://raw.githubusercontent.com/jwolle1/jeopardy_clue_dataset/'
@@ -151,6 +155,15 @@ def read_rows(path):
             yield row
 
 
+def version_path(db_path):
+    """The small JSON file written next to the database (clues.db -> clues.version).
+
+    The app compares it with the installed copy's to decide whether to copy the
+    bundled database again, without reading the whole database asset.
+    """
+    return db_path.with_suffix('.version')
+
+
 def build(input_path, output_path, dataset_version, source_sha256, keep_media=False):
     """Build the database at output_path and return a dict of statistics."""
     stats = {'read': 0, 'written': 0, 'dropped_empty': 0, 'dropped_duplicate': 0,
@@ -198,6 +211,16 @@ def build(input_path, output_path, dataset_version, source_sha256, keep_media=Fa
     stats['games'] = len(games)
     stats['categories'] = len(categories)
 
+    meta = {
+        'schema_version': str(SCHEMA_VERSION),
+        'dataset_version': dataset_version,
+        'dataset_namespace': DATASET_NAMESPACE,
+        'source_sha256': source_sha256,
+        'built_at': datetime.datetime.now(datetime.timezone.utc)
+            .replace(microsecond=0).isoformat(),
+        'clue_count': str(len(clues)),
+    }
+
     # Build into a temporary file so a failed run never leaves a partial database.
     output_path.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp_name = tempfile.mkstemp(suffix='.db', dir=output_path.parent)
@@ -213,20 +236,17 @@ def build(input_path, output_path, dataset_version, source_sha256, keep_media=Fa
                              ((i, n) for n, i in categories.items()))
             conn.executemany('INSERT INTO clues VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
                              clues)
-            conn.executemany('INSERT INTO meta (key, value) VALUES (?, ?)', [
-                ('schema_version', str(SCHEMA_VERSION)),
-                ('dataset_version', dataset_version),
-                ('source_sha256', source_sha256),
-                ('built_at', datetime.datetime.now(datetime.timezone.utc)
-                    .replace(microsecond=0).isoformat()),
-                ('clue_count', str(len(clues))),
-            ])
+            conn.executemany('INSERT INTO meta (key, value) VALUES (?, ?)', meta.items())
         conn.execute('VACUUM')
         conn.close()
         tmp_path.replace(output_path)
     finally:
         if tmp_path.exists():
             tmp_path.unlink()
+
+    version_tmp = version_path(output_path).with_suffix('.version.part')
+    version_tmp.write_text(json.dumps(meta, sort_keys=True) + '\n', encoding='utf-8')
+    version_tmp.replace(version_path(output_path))
 
     stats['size_bytes'] = output_path.stat().st_size
     return stats
