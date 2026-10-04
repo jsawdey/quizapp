@@ -3,7 +3,7 @@
          (QUESTION_SOURCE=api); see README.md. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="jeopardy_fun"
+        android:label="Trivia"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
