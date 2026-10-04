@@ -66,11 +66,13 @@ class FakeQuestionSource extends QuestionSource {
 class TokenGuardedSource extends FakeQuestionSource {
   final ApiCredentials credentials;
   final String token;
+  int requests = 0;
 
   TokenGuardedSource(super.questions, {required this.credentials, required this.token});
 
   @override
   Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
+    requests++;
     final sent = credentials.token;
     if (sent != token) {
       throw Unauthorized(sent == null

@@ -58,6 +58,12 @@ I checked this with a trial `flutter create --platforms=web .` and
 - **Size:** `build/web` is 40 MB on disk, but a browser downloads one
   renderer (CanvasKit or Skwasm, ~7 MB) plus `main.dart.js` (2.2 MB) and
   caches them. That's fine on a LAN.
+- **A default web build needs internet access.** Found while building it:
+  `flutter build web` loads CanvasKit from `www.gstatic.com` and the Roboto
+  font from `fonts.gstatic.com`, so on a network without internet access the
+  page never starts. `flutter build web --no-web-resources-cdn` bundles both
+  into `build/web`, and `serve_clues.py --web` warns about builds made
+  without it (§6).
 - **The development loop:** `flutter run -d chrome` serves the app from its
   own port, which is a different origin from `serve_clues.py`. Flutter's
   `web_dev_config.yaml` supports `proxy:` rules (this Flutter version has
@@ -118,11 +124,12 @@ The token can't be compiled in, so the page asks for it:
 - `HttpQuestionSource.token` becomes settable through a small
   `ApiCredentials` holder that the factory passes in and every request reads.
 - `TokenStore` (`lib/data/token_store.dart`) wraps `shared_preferences`
-  (localStorage on the web) with `read`, `write` and `clear`. It is only used
-  on the web.
+  (localStorage on the web) with `read` and `write`. It is only used on the
+  web.
 - `QuestionRepository` gets `bool get canSetToken` (true on the web) and
-  `Future<void> setToken(String token)`, which saves the token, updates the
-  credentials and clears the source's buffer.
+  `Future<void> setToken(String token)`, which saves the token and updates
+  the credentials. (As built, the source's buffer isn't cleared: questions
+  fetched with an earlier token are still good.)
 - `QuizPage`: when `next()` throws `Unauthorized` and `canSetToken` is true,
   the error panel shows a password field and **Connect** instead of
   **Retry**. A rejected token comes back to the same panel with "That token
@@ -192,11 +199,17 @@ These are small, and they help phones and tablets too:
 - **Keyboard:** Space or Enter flips between clue and response, N or → loads
   the next question, and H opens the hide dialog. Use `Shortcuts` and
   `Actions` on the page, ignored while a dialog or the token field has focus.
-  The FAB and Hide tooltips list the keys.
+  The FAB's tooltip lists the keys in browsers and on desktops. As built,
+  the actions are disabled while no question is showing, so the keys aren't
+  handled and reach the token field (a handled key never gets to a text box
+  in the browser). The page takes focus back after the token is accepted,
+  because the browser drops it along with the field.
 - **Mouse:** a click cursor on the clue panel.
 - **Tab title and metadata:** `web/index.html` and `manifest.json` get the app
-  name (`MaterialApp.title`; see §12) and the existing launcher icon. With the manifest, "Add to Home Screen" on iOS and Android gives an
-  app-like shortcut.
+  name (`MaterialApp.title`; see §12) and the existing launcher icon. With
+  the manifest, "Add to Home Screen" on iOS and Android gives an app-like
+  shortcut. (As built, the web icons are the template's: the Android and iOS
+  launcher icons are still Flutter's default too.)
 - The info overlay and the offline icon are unchanged. The offline icon never
   appears on the web, because there is no fallback there.
 
@@ -224,7 +237,7 @@ These are small, and they help phones and tablets too:
 |---|---|
 | `test/source_config_test.dart` | web defaults (api, page origin, quizapp); `local`/fallback rejected on web; http allowed on web in release; token define rejected on web; non-web behaviour unchanged |
 | `test/hidden_question_store_test.dart` | `SharedPrefsHiddenQuestionStore` with `SharedPreferences.setMockInitialValues`: hide, survives reopen, shared ids |
-| `test/http_question_source_test.dart` | 401/403 → `Unauthorized`; a token change applies to the next request and clears the buffer |
+| `test/http_question_source_test.dart` | 401/403 → `Unauthorized`; a token change applies to the next request |
 | `test/question_repository_test.dart` | `setToken` saves, updates credentials, and the next `next()` succeeds |
 | `test/widget_test.dart` | `Unauthorized` → token panel → Connect → question; rejected token message; keyboard shortcuts (space flips, N loads, H opens dialog); wide-window layout is constrained |
 | `tool/test_serve_clues.py` | `--web`: `/` serves `index.html`; content types incl. `.wasm`; `../` and encoded traversal → 404; static files need no token while `/v1/` still does; 304 on `If-Modified-Since`; missing `index.html` exits with a message |
@@ -242,20 +255,28 @@ screenshot of the response.
 
 ## 11. Suggested commit order
 
-1. **Keep the database out of web builds.** Add the `platforms:` asset entry.
+1. ~~**Keep the database out of web builds.** Add the `platforms:` asset entry.
    This is worth doing even if the rest slips: it stops the dataset from ever
-   landing in a web bundle.
-2. **Web platform and config.** `flutter create --platforms=web .`, the
+   landing in a web bundle.~~ (done)
+2. ~~**Web platform and config.** `flutter create --platforms=web .`, the
    `SourceConfig` web defaults and checks, `SharedPrefsHiddenQuestionStore`,
    and the `kIsWeb` wiring in `main.dart`, plus tests. Afterwards
-   `flutter run -d chrome` works against a server without a token.
-3. **Serve it.** `serve_clues.py --web`, the token check after routing,
-   `web_dev_config.yaml` and the tool tests.
-4. **Token prompt.** `Unauthorized`, `ApiCredentials`, `TokenStore`,
-   `setToken` and the token panel, plus tests.
-5. **Browser polish and docs.** Wide-screen layout, keyboard shortcuts,
+   `flutter run -d chrome` works against a server without a token.~~ (done;
+   the `index.html`/manifest metadata came here, with the new files)
+3. ~~**Serve it.** `serve_clues.py --web`, the token check after routing,
+   `web_dev_config.yaml` and the tool tests.~~ (done; also the warning about
+   builds that load from Google's CDN, and HEAD requests. The dev proxy was
+   checked with `flutter run -d web-server`: it forwards `/v1/` and the
+   `Authorization` header.)
+4. ~~**Token prompt.** `Unauthorized`, `ApiCredentials`, `TokenStore`,
+   `setToken` and the token panel, plus tests.~~ (done)
+5. ~~**Browser polish and docs.** Wide-screen layout, keyboard shortcuts,
    cursor, `index.html`/manifest metadata, the README section and the manual
-   Playwright check.
+   Playwright check.~~ (done. The Playwright check, against a
+   `--no-web-resources-cdn` build in Chromium with Google's servers
+   unreachable, covered: the token panel, a rejected token, a token containing
+   N, H and a space, a reload using the saved token, Space/N/H after
+   connecting, and the 900 px board in a 1920 px window.)
 
 ## 12. Risks and open questions
 

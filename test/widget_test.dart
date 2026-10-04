@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:quizapp/controller/question_repository.dart';
@@ -101,6 +102,9 @@ void main() {
       await pumpGuarded(tester);
       expect(find.text('fake source needs an access token.'), findsOneWidget);
       expect(find.text('Retry'), findsNothing);
+      await tester.pump();
+      final field = tester.widget<TextField>(find.byType(TextField));
+      expect(field.focusNode!.hasPrimaryFocus, isTrue);
 
       await tester.enterText(find.byType(TextField), 's3cret');
       await tester.tap(find.text('Connect'));
@@ -108,6 +112,10 @@ void main() {
       expect(find.text('CLUE 1'), findsOneWidget);
       expect(find.byType(TextField), findsNothing);
       expect(tokens.token, 's3cret');
+      // The shortcuts work again without clicking the page first.
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(find.text('RESPONSE 1'), findsOneWidget);
     });
 
     testWidgets('Says when the token is rejected', (WidgetTester tester) async {
@@ -199,6 +207,70 @@ void main() {
     // The text was given all the height it needs, rather than being clipped
     // to the panel.
     expect(box.getMinIntrinsicHeight(box.size.width), lessThanOrEqualTo(box.size.height));
+  });
+
+  group('keyboard', () {
+    testWidgets('Space and Enter flip the card; N and → load the next question',
+        (WidgetTester tester) async {
+      await pumpApp(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.space);
+      await tester.pump();
+      expect(find.text('RESPONSE 1'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+      await tester.pump();
+      expect(find.text('CLUE 1'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+      await tester.pump();
+      expect(find.text('CLUE 2'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.pump();
+      expect(find.text('CLUE 1'), findsOneWidget);
+    });
+
+    testWidgets('H opens the hide dialog', (WidgetTester tester) async {
+      await pumpApp(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyH);
+      await tester.pumpAndSettle();
+      expect(find.text('Hide this question?'), findsOneWidget);
+      // Keys in the dialog don't reach the page.
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+      await tester.pumpAndSettle();
+      expect(find.text('Hide this question?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(find.text('CLUE 1'), findsOneWidget);
+    });
+
+    testWidgets('Typing a token doesn\'t trigger shortcuts', (WidgetTester tester) async {
+      final credentials = ApiCredentials();
+      final guarded = TokenGuardedSource([fakeQuestion('1'), fakeQuestion('2')],
+          credentials: credentials, token: 'nh');
+      await tester.pumpWidget(QuizApp(repository: QuestionRepository(source: guarded,
+          hiddenStore: hidden, tokenStore: InMemoryTokenStore(), credentials: credentials)));
+      await tester.pump();
+      await tester.showKeyboard(find.byType(TextField));
+      // Unhandled, so in a browser the keys reach the text field.
+      for (final key in [LogicalKeyboardKey.keyN, LogicalKeyboardKey.keyH,
+          LogicalKeyboardKey.space, LogicalKeyboardKey.enter]) {
+        expect(await tester.sendKeyEvent(key), isFalse, reason: '$key');
+      }
+      await tester.pumpAndSettle();
+      expect(find.byType(SimpleDialog), findsNothing);
+      expect(guarded.requests, 1);
+      expect(find.text('fake source needs an access token.'), findsOneWidget);
+    });
+  });
+
+  testWidgets('The board keeps its width in a wide window', (WidgetTester tester) async {
+    tester.view.physicalSize = const Size(1920, 1080);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await pumpApp(tester);
+    final panel = tester.getRect(find.ancestor(
+        of: find.byType(QuestionAnswerWidget), matching: find.byType(QuizDecorationWrapper)));
+    expect(panel.width, 900);
+    expect(panel.center.dx, 960);
   });
 
   testWidgets('Info button toggles the raw data overlay', (WidgetTester tester) async {

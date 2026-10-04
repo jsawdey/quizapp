@@ -1,7 +1,8 @@
 # quizapp
 
 A fun Jeopardy-style quiz app written in Flutter. It shows a random clue; tap
-it to see the response.
+it to see the response. It runs on phones and, served from your own computer,
+in a browser (see [Playing in a browser](#playing-in-a-browser)).
 
 Questions come from a local database of real Jeopardy! clues built from the
 [jwolle1/jeopardy_clue_dataset](https://github.com/jwolle1/jeopardy_clue_dataset),
@@ -124,3 +125,45 @@ public internet:
   plugin) to get its certificate; see Caddy's
   [automatic HTTPS docs](https://caddyserver.com/docs/automatic-https#dns-challenge).
 
+## Playing in a browser
+
+`serve_clues.py` can also serve the app itself, so any device on your network
+can play by opening the server's address, with nothing to install. The
+design is in [docs/web-ui-plan.md](docs/web-ui-plan.md).
+
+```
+python3 tool/build_clue_db.py
+flutter build web --no-web-resources-cdn
+python3 tool/serve_clues.py --host 0.0.0.0 --web build/web --token SOME-SECRET
+```
+
+Then open `http://<this computer>:8080/`.
+
+- **Build with `--no-web-resources-cdn`.** Without it, the page loads its
+  renderer and fonts from Google's servers and stays blank on a device
+  without internet access. `serve_clues.py` warns about such builds.
+- **No settings needed.** A web build reads from the server that served the
+  page, using the `quizapp` API. It can't use the local clue database (that
+  isn't bundled into web builds, which anyone loading the page could
+  download), so `local` and `api_with_local_fallback` are refused.
+- **The token is entered in the page.** If the server has `--token`, the page
+  asks for it once and keeps it in the browser's storage. Don't put
+  `QUESTION_API_TOKEN` in a web build: anyone who loads the page could read
+  it, so the build refuses it. The app's files themselves don't need the
+  token; they contain no clues.
+- **Keyboard:** Space or Enter flips the card, N or → loads the next clue, and
+  H hides the clue.
+- Hidden clues are kept in the browser's storage, and reported to the server
+  so every device stops seeing them.
+- **Personal use only**, as above: keep the server on your own network. Don't
+  publish `build/web` on a public host either; it needs the server anyway.
+  `tailscale serve` (see above) also gives the web UI https.
+
+To work on the web UI, start the server and run the app in Chrome. Requests
+to `/v1/` are forwarded to the server (see `web_dev_config.yaml`), so it reads
+real clues with hot reload:
+
+```
+python3 tool/serve_clues.py
+flutter run -d chrome
+```
