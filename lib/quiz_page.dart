@@ -28,6 +28,9 @@ class _QuizPageState extends State<QuizPage> {
   bool _showAnswer = false;
   bool _questionHidden = false;
   bool _showOverlay = false;
+  /// Whether the error is a missing or rejected token the user can enter.
+  bool _needsToken = false;
+  final _tokenController = TextEditingController();
 
   static final _dollars = NumberFormat.simpleCurrency(locale: 'en_US', decimalDigits: 0);
 
@@ -35,6 +38,12 @@ class _QuizPageState extends State<QuizPage> {
   void initState() {
     super.initState();
     _loadQuestion();
+  }
+
+  @override
+  void dispose() {
+    _tokenController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadQuestion() async {
@@ -51,7 +60,10 @@ class _QuizPageState extends State<QuizPage> {
         _showAnswer = false;
         _questionHidden = false;
         _showOverlay = false;
+        _needsToken = false;
       });
+    } on Unauthorized catch (e) {
+      _showError(e.message, needsToken: widget.repository.canSetToken);
     } on SourceUnavailable catch (e) {
       _showError(e.message);
     } on NoQuestionFound catch (e) {
@@ -64,12 +76,25 @@ class _QuizPageState extends State<QuizPage> {
     }
   }
 
-  void _showError(String message) {
+  void _showError(String message, {bool needsToken = false}) {
     if (!mounted) return;
     setState(() {
       _current = null;
       _error = message;
+      _needsToken = needsToken;
     });
+  }
+
+  Future<void> _connect() async {
+    final token = _tokenController.text.trim();
+    if (token.isEmpty || _loading) return;
+    try {
+      await widget.repository.setToken(token);
+    } catch (e) {
+      debugPrint('Could not save the access token: $e');
+    }
+    _tokenController.clear();
+    await _loadQuestion();
   }
 
   Future<void> _hideQuestion() async {
@@ -157,12 +182,35 @@ class _QuizPageState extends State<QuizPage> {
             Text(error, textAlign: TextAlign.center,
                 style: CustomAppTheme.messageTextTheme()),
             const SizedBox(height: 16.0),
+            if (_needsToken) ...[
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 320.0),
+                child: TextField(
+                  controller: _tokenController,
+                  obscureText: true,
+                  autofocus: true,
+                  style: const TextStyle(color: Colors.white),
+                  cursorColor: Colors.white,
+                  decoration: const InputDecoration(
+                    labelText: 'Access token',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    floatingLabelStyle: TextStyle(color: Colors.white),
+                    enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.white70)),
+                    focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.white)),
+                  ),
+                  onSubmitted: (_) => _connect(),
+                ),
+              ),
+              const SizedBox(height: 16.0),
+            ],
             OutlinedButton(
               style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.white,
                   side: const BorderSide(color: Colors.white)),
-              onPressed: _loadQuestion,
-              child: const Text('Retry'),
+              onPressed: _needsToken ? _connect : _loadQuestion,
+              child: Text(_needsToken ? 'Connect' : 'Retry'),
             ),
           ],
         ),

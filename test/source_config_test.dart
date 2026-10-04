@@ -133,6 +133,15 @@ void main() {
           .having((s) => s.token, 'token', 'abc'));
     });
 
+    test('api with credentials sends whatever they hold', () {
+      final credentials = ApiCredentials('from the page');
+      final source = createQuestionSource(SourceConfig.parse(source: 'api',
+          apiUrl: 'https://x.example', apiDialect: 'quizapp'), credentials: credentials);
+      expect(source, isA<HttpQuestionSource>()
+          .having((s) => s.credentials, 'credentials', same(credentials))
+          .having((s) => s.token, 'token', 'from the page'));
+    });
+
     test('api with local fallback', () {
       final source = createQuestionSource(SourceConfig.parse(
           source: 'api_with_local_fallback', apiUrl: 'https://x.example',

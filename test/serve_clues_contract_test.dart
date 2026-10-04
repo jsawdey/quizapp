@@ -101,10 +101,10 @@ void main() {
     await source.close();
   }, skip: skip);
 
-  test('a wrong token is SourceUnavailable', () async {
+  test('a wrong token is Unauthorized', () async {
     final source = api(withToken: 'wrong');
-    await expectLater(source.randomQuestion(), throwsA(isA<SourceUnavailable>()
-        .having((e) => e.message, 'message', contains('401'))));
+    await expectLater(source.randomQuestion(), throwsA(isA<Unauthorized>()
+        .having((e) => e.message, 'message', contains('rejected the access token'))));
     await source.close();
   }, skip: skip);
 

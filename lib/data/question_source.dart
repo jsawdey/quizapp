@@ -50,6 +50,12 @@ class SourceUnavailable implements Exception {
   String toString() => message;
 }
 
+/// The backend refused the request because its access token is missing or
+/// wrong. Still [SourceUnavailable], so a fallback source can take over.
+class Unauthorized extends SourceUnavailable {
+  const Unauthorized(super.message);
+}
+
 /// The backend works, but nothing matches the filter or everything matching
 /// has been hidden.
 class NoQuestionFound implements Exception {

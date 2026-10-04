@@ -1,7 +1,10 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quizapp/controller/question_repository.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
+import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
+import 'package:quizapp/data/token_store.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fakes.dart';
 
@@ -78,5 +81,47 @@ void main() {
     await repositoryWith(source).hide(fakeQuestion('7'));
     await pumpEventQueue();
     expect(hidden.isHidden(fakeQuestion('7')), isTrue);
+  });
+
+  group('access token', () {
+    test('can only be set with a token store and credentials', () async {
+      final repository = repositoryWith(FakeQuestionSource([fakeQuestion('1')]));
+      expect(repository.canSetToken, isFalse);
+      await expectLater(repository.setToken('x'), throwsStateError);
+    });
+
+    test('setToken saves the token and sends it from then on', () async {
+      final credentials = ApiCredentials();
+      final store = InMemoryTokenStore();
+      final repository = QuestionRepository(
+          source: TokenGuardedSource([fakeQuestion('1')],
+              credentials: credentials, token: 's3cret'),
+          hiddenStore: hidden, tokenStore: store, credentials: credentials);
+      expect(repository.canSetToken, isTrue);
+      await expectLater(repository.next(), throwsA(isA<Unauthorized>()));
+
+      await repository.setToken(' s3cret ');
+      expect(store.token, 's3cret');
+      expect(credentials.token, 's3cret');
+      expect((await repository.next()).key, '1');
+    });
+
+    test('a saved token is used when the repository opens', () async {
+      final credentials = ApiCredentials();
+      final repository = QuestionRepository(
+          source: TokenGuardedSource([fakeQuestion('1')],
+              credentials: credentials, token: 's3cret'),
+          hiddenStore: hidden, tokenStore: InMemoryTokenStore('s3cret'),
+          credentials: credentials);
+      expect((await repository.next()).key, '1');
+    });
+
+    test('SharedPrefsTokenStore keeps the token', () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = SharedPrefsTokenStore();
+      expect(await store.read(), isNull);
+      await store.write('s3cret');
+      expect(await SharedPrefsTokenStore().read(), 's3cret');
+    });
   });
 }

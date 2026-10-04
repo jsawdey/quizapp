@@ -3,13 +3,19 @@ import 'package:flutter/material.dart';
 import 'package:quizapp/config/source_factory.dart';
 import 'package:quizapp/controller/question_repository.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
+import 'package:quizapp/data/http_question_source.dart';
+import 'package:quizapp/data/token_store.dart';
 import 'quiz_page.dart';
 
 void main() {
+  // Web builds ask for the API's access token rather than compiling it in.
+  final credentials = kIsWeb ? ApiCredentials() : null;
   final repository = QuestionRepository(
-    source: questionSourceFromEnvironment(),
+    source: questionSourceFromEnvironment(credentials: credentials),
     // sqflite has no web implementation.
     hiddenStore: kIsWeb ? SharedPrefsHiddenQuestionStore() : SqfliteHiddenQuestionStore(),
+    tokenStore: kIsWeb ? SharedPrefsTokenStore() : null,
+    credentials: credentials,
   );
   runApp(QuizApp(repository: repository));
 }

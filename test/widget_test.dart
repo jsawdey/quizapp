@@ -6,7 +6,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:quizapp/controller/question_repository.dart';
 import 'package:quizapp/data/fallback_question_source.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
+import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
+import 'package:quizapp/data/token_store.dart';
 import 'package:quizapp/main.dart';
 import 'package:quizapp/model/question.dart';
 import 'package:quizapp/ui/quiz_question/quiz_ui_library.dart';
@@ -79,6 +81,61 @@ void main() {
     await tester.pump();
     expect(find.text('Retry'), findsNothing);
     expect(find.text('CLUE 1'), findsOneWidget);
+  });
+
+  group('access token', () {
+    late ApiCredentials credentials;
+    late InMemoryTokenStore tokens;
+
+    Future<void> pumpGuarded(WidgetTester tester) async {
+      credentials = ApiCredentials();
+      tokens = InMemoryTokenStore();
+      await tester.pumpWidget(QuizApp(repository: QuestionRepository(
+          source: TokenGuardedSource([fakeQuestion('1')],
+              credentials: credentials, token: 's3cret'),
+          hiddenStore: hidden, tokenStore: tokens, credentials: credentials)));
+      await tester.pump();
+    }
+
+    testWidgets('Asks for the token and connects with it', (WidgetTester tester) async {
+      await pumpGuarded(tester);
+      expect(find.text('fake source needs an access token.'), findsOneWidget);
+      expect(find.text('Retry'), findsNothing);
+
+      await tester.enterText(find.byType(TextField), 's3cret');
+      await tester.tap(find.text('Connect'));
+      await tester.pump();
+      expect(find.text('CLUE 1'), findsOneWidget);
+      expect(find.byType(TextField), findsNothing);
+      expect(tokens.token, 's3cret');
+    });
+
+    testWidgets('Says when the token is rejected', (WidgetTester tester) async {
+      await pumpGuarded(tester);
+      await tester.enterText(find.byType(TextField), 'wrong');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      expect(find.text('fake source rejected the access token.'), findsOneWidget);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(tester.widget<TextField>(find.byType(TextField)).controller!.text, isEmpty);
+    });
+
+    testWidgets('Ignores an empty token', (WidgetTester tester) async {
+      await pumpGuarded(tester);
+      await tester.tap(find.text('Connect'));
+      await tester.pump();
+      expect(tokens.token, isNull);
+      expect(find.text('fake source needs an access token.'), findsOneWidget);
+    });
+
+    testWidgets('Without a token store, a rejected token just offers Retry',
+        (WidgetTester tester) async {
+      source.error = const Unauthorized('example.test rejected the access token.');
+      await pumpApp(tester);
+      expect(find.text('example.test rejected the access token.'), findsOneWidget);
+      expect(find.byType(TextField), findsNothing);
+      expect(find.text('Retry'), findsOneWidget);
+    });
   });
 
   testWidgets('Shows NoQuestionFound messages too', (WidgetTester tester) async {

@@ -8,6 +8,13 @@ import 'package:quizapp/data/api_dialect.dart';
 import 'package:quizapp/data/question_source.dart';
 import 'package:quizapp/model/question.dart';
 
+/// The bearer token an [HttpQuestionSource] sends. Separate from the source so
+/// the token can change while the app runs: the web UI asks for it.
+class ApiCredentials {
+  String? token;
+  ApiCredentials([this.token]);
+}
+
 /// Fetches questions from an HTTP API in batches and serves them from a
 /// buffer, refilling it in the background before it runs out.
 class HttpQuestionSource extends QuestionSource {
@@ -19,7 +26,7 @@ class HttpQuestionSource extends QuestionSource {
 
   final Uri baseUrl;
   final ApiDialect dialect;
-  final String? token;
+  final ApiCredentials credentials;
   final Duration timeout;
   final http.Client _client;
   final bool _ownsClient;
@@ -29,10 +36,15 @@ class HttpQuestionSource extends QuestionSource {
   Future<void>? _refill;
   QuestionFilter? _refillFilter;
 
-  HttpQuestionSource({required this.baseUrl, required this.dialect, this.token,
-    this.timeout = const Duration(seconds: 8), http.Client? client})
-      : _client = client ?? http.Client(),
+  /// Sends [token], or whatever [credentials] holds when the request is made.
+  HttpQuestionSource({required this.baseUrl, required this.dialect, String? token,
+    ApiCredentials? credentials, this.timeout = const Duration(seconds: 8),
+    http.Client? client})
+      : credentials = credentials ?? ApiCredentials(token),
+        _client = client ?? http.Client(),
         _ownsClient = client == null;
+
+  String? get token => credentials.token;
 
   @override
   String get description => baseUrl.host;
@@ -40,10 +52,13 @@ class HttpQuestionSource extends QuestionSource {
   @override
   bool get supportsRemoteReport => dialect.supportsReport;
 
-  Map<String, String> get _headers => {
-    'Accept': 'application/json',
-    if (token != null && token!.isNotEmpty) 'Authorization': 'Bearer $token',
-  };
+  Map<String, String> get _headers {
+    final token = this.token;
+    return {
+      'Accept': 'application/json',
+      if (token != null && token.isNotEmpty) 'Authorization': 'Bearer $token',
+    };
+  }
 
   @override
   Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
@@ -115,6 +130,12 @@ class HttpQuestionSource extends QuestionSource {
     } on Exception catch (e) {
       // TLS and other I/O errors the client doesn't wrap.
       throw SourceUnavailable('Could not reach $description: $e');
+    }
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      final token = this.token;
+      throw Unauthorized(token == null || token.isEmpty
+          ? '$description needs an access token.'
+          : '$description rejected the access token.');
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw SourceUnavailable('$description returned HTTP ${response.statusCode}.');
