@@ -41,8 +41,12 @@ flutter:
   # The clue database built by tool/build_clue_db.py (clues.db and
   # clues.version). The folder is listed rather than the files so a build
   # without the database still compiles; the app then reports it as missing.
+  # Web builds leave it out: the browser reads from serve_clues.py, and a web
+  # bundle is downloadable by anyone who can load the page, which the
+  # dataset's terms rule out.
   assets:
-    - assets/db/
+    - path: assets/db/
+      platforms: [android, ios, linux, macos, windows]
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.io/assets-and-images/#resolution-aware.
