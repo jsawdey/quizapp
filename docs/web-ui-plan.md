@@ -294,8 +294,10 @@ screenshot of the response.
   proxy. Hosting the page elsewhere would need `Access-Control-*` handling,
   which isn't planned.
 - **Open:** the tab title and app name. `MaterialApp.title` is "Random Trivia
-  Question" and the Android package is `jeopardyfun`. The plan keeps the
-  current title unless you'd rather have a new one.
+  Question". The Android package has since become `com.sawdeydev.quizapp`
+  (it was `com.sawdeydev.jeopardyfun`), but the launcher label and the iOS
+  display name are still `jeopardy_fun`. The plan keeps the current title
+  unless you'd rather have a new one.
 - **Next after this:** round and date filters. `QuestionFilter` is already
   wired through the repository, both dialects and the server, so it is mostly
   a settings sheet, and with the web UI in place it ships to both platforms
