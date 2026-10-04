@@ -297,8 +297,9 @@ screenshot of the response.
   Question". The Android package has since become `com.sawdeydev.quizapp`
   (it was `com.sawdeydev.jeopardyfun`), and the Android launcher label and
   iOS display name are "Trivia", matching the web manifest's short name. The
-  iOS bundle ID is still `com.sawdeydev.jeopardyFun`. The plan keeps the
-  current title unless you'd rather have a new one.
+  iOS bundle ID is `com.sawdeydev.quizapp` too (it was
+  `com.sawdeydev.jeopardyFun`). The plan keeps the current title unless you'd
+  rather have a new one.
 - **Next after this:** round and date filters. `QuestionFilter` is already
   wired through the repository, both dialects and the server, so it is mostly
   a settings sheet, and with the web UI in place it ships to both platforms
