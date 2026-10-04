@@ -8,14 +8,20 @@ devices only: keep it on localhost or your home network, never the internet.
 Usage (from the repository root, after python3 tool/build_clue_db.py):
     python3 tool/serve_clues.py                              # localhost only
     python3 tool/serve_clues.py --host 0.0.0.0 --token SECRET  # your LAN
+    python3 tool/serve_clues.py --web build/web              # plus the web UI
 
 Then build the app with QUESTION_SOURCE=api (or api_with_local_fallback),
 QUESTION_API_DIALECT=quizapp and QUESTION_API_URL=http://<this computer>:8080.
-Release builds need https; see README.md.
+Release builds need https; see README.md. With --web, after
+flutter build web --no-web-resources-cdn, browsers can play at
+http://<this computer>:8080/.
 
 API (docs/question-backend-plan.md section 7):
     GET  /v1/random?count=10[&round=1,2][&from=YYYY-MM-DD][&to=YYYY-MM-DD]
     POST /v1/questions/{key}/report
+
+With --token, the API needs the bearer token but the web UI's files don't:
+they hold no clues, and the page asks for the token.
 
 Reported clues are kept in a separate database (--reports) and never served
 again, so hiding a clue on one device hides it on all of them.
@@ -26,8 +32,10 @@ Only the Python standard library is required.
 import argparse
 import contextlib
 import datetime
+import email.utils
 import hmac
 import json
+import mimetypes
 import random
 import sqlite3
 import sys
@@ -54,6 +62,20 @@ SELECT = '''
     FROM clues c
     JOIN categories cat ON cat.id = c.category_id
     JOIN games g ON g.id = c.game_id'''
+
+
+# Types mimetypes may not know, or gets wrong on some systems. WebAssembly has
+# to be application/wasm for browsers to compile it while it downloads.
+WEB_CONTENT_TYPES = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.mjs': 'text/javascript; charset=utf-8',
+    '.json': 'application/json; charset=utf-8',
+    '.wasm': 'application/wasm',
+    '.otf': 'font/otf',
+    '.ttf': 'font/ttf',
+    '.png': 'image/png',
+}
 
 
 class BadRequest(Exception):
@@ -180,22 +202,60 @@ def parse_random_query(query):
     return min(count, MAX_COUNT), rounds, dates.get('from'), dates.get('to')
 
 
-def make_handler(store, token=None, quiet=False):
+def web_file(root, url_path):
+    """The file under root that url_path names, or None.
+
+    root must be resolved. Hidden names, `..` and anything that resolves
+    outside root (through a symlink, say) are refused.
+    """
+    rel = unquote(url_path).lstrip('/') or 'index.html'
+    if any(part.startswith('.') for part in rel.split('/')) or '\\' in rel:
+        return None
+    try:
+        path = (root / rel).resolve()
+        if not path.is_relative_to(root) or not path.is_file():
+            return None
+    except (OSError, ValueError):  # ValueError: a NUL byte in the name.
+        return None
+    return path
+
+
+def web_build_uses_cdn(web_root):
+    """Whether a Flutter web build loads CanvasKit and fonts from Google's CDN.
+
+    By default `flutter build web` does, so the page only works with internet
+    access; --no-web-resources-cdn bundles them.
+    """
+    try:
+        bootstrap = (Path(web_root) / 'flutter_bootstrap.js').read_text(errors='replace')
+    except OSError:
+        return False
+    return '"useLocalCanvasKit":true' not in bootstrap.replace(' ', '')
+
+
+def make_handler(store, token=None, quiet=False, web_root=None):
     class Handler(BaseHTTPRequestHandler):
         server_version = 'serve_clues/1'
 
         def do_GET(self):
             self._handle('GET')
 
+        def do_HEAD(self):
+            self._handle('HEAD')
+
         def do_POST(self):
             self._handle('POST')
 
         def _handle(self, method):
+            url = urlsplit(self.path)
+            parts = [unquote(p) for p in url.path.split('/') if p]
+            if parts[:1] != ['v1']:
+                if web_root is not None:
+                    return self._serve_web(method, url.path)
+                return self._send_json(HTTPStatus.NOT_FOUND, {'error': 'not found'})
             if token is not None and not self._authorized():
                 return self._send_json(HTTPStatus.UNAUTHORIZED,
                                        {'error': 'missing or wrong bearer token'})
-            url = urlsplit(self.path)
-            parts = [unquote(p) for p in url.path.split('/') if p]
             try:
                 if parts == ['v1', 'random']:
                     if method != 'GET':
@@ -218,6 +278,39 @@ def make_handler(store, token=None, quiet=False):
                 return self._send_json(HTTPStatus.BAD_REQUEST, {'error': str(e)})
             return self._send_json(HTTPStatus.NOT_FOUND, {'error': 'not found'})
 
+        def _serve_web(self, method, url_path):
+            if method not in ('GET', 'HEAD'):
+                return self._not_allowed('GET, HEAD')
+            path = web_file(web_root, url_path)
+            if path is None:
+                return self._send(HTTPStatus.NOT_FOUND, b'Not found',
+                                  {'Content-Type': 'text/plain; charset=utf-8'})
+            stat = path.stat()
+            # no-cache: the browser keeps its copy but checks it on every load,
+            # so a rebuilt app shows up on reload. Unchanged files get a 304.
+            headers = {'Cache-Control': 'no-cache',
+                       'Last-Modified': email.utils.formatdate(stat.st_mtime, usegmt=True),
+                       'X-Content-Type-Options': 'nosniff'}
+            if self._not_modified_since(stat.st_mtime):
+                return self._send(HTTPStatus.NOT_MODIFIED, headers=headers)
+            content_type = (WEB_CONTENT_TYPES.get(path.suffix.lower())
+                            or mimetypes.guess_type(path.name)[0]
+                            or 'application/octet-stream')
+            self._send(HTTPStatus.OK, path.read_bytes(),
+                       {'Content-Type': content_type, **headers})
+
+        def _not_modified_since(self, mtime):
+            since = self.headers.get('If-Modified-Since')
+            if not since:
+                return False
+            try:
+                since = email.utils.parsedate_to_datetime(since)
+            except (TypeError, ValueError):
+                return False
+            if since.tzinfo is None:
+                return False
+            return int(mtime) <= since.timestamp()
+
         def _authorized(self):
             expected = f'Bearer {token}'.encode()
             actual = self.headers.get('Authorization', '').encode()
@@ -236,9 +329,11 @@ def make_handler(store, token=None, quiet=False):
             self.send_response(status)
             for name, value in (headers or {}).items():
                 self.send_header(name, value)
-            self.send_header('Content-Length', str(len(data)))
+            if status != HTTPStatus.NOT_MODIFIED:
+                self.send_header('Content-Length', str(len(data)))
             self.end_headers()
-            self.wfile.write(data)
+            if self.command != 'HEAD' and status != HTTPStatus.NOT_MODIFIED:
+                self.wfile.write(data)
 
         def log_message(self, format, *args):
             if not quiet:
@@ -247,8 +342,11 @@ def make_handler(store, token=None, quiet=False):
     return Handler
 
 
-def make_server(store, host='127.0.0.1', port=8080, token=None, quiet=False):
-    return ThreadingHTTPServer((host, port), make_handler(store, token, quiet))
+def make_server(store, host='127.0.0.1', port=8080, token=None, quiet=False, web_root=None):
+    """web_root, if given, is a Flutter web build to serve outside /v1/."""
+    if web_root is not None:
+        web_root = Path(web_root).resolve()
+    return ThreadingHTTPServer((host, port), make_handler(store, token, quiet, web_root))
 
 
 def parse_args(argv):
@@ -265,6 +363,9 @@ def parse_args(argv):
                         help='port to listen on; 0 picks a free one (default: %(default)s)')
     parser.add_argument('--token',
                         help='require this bearer token (QUESTION_API_TOKEN in the app)')
+    parser.add_argument('--web', type=Path, metavar='DIR',
+                        help='also serve the web UI from this Flutter web build '
+                             '(build/web after flutter build web --no-web-resources-cdn)')
     parser.add_argument('--quiet', action='store_true', help="don't log each request")
     return parser.parse_args(argv)
 
@@ -275,14 +376,24 @@ def main(argv=None):
         print(f'error: {args.db} does not exist. Run python3 tool/build_clue_db.py first.',
               file=sys.stderr)
         return 1
+    if args.web is not None and not (args.web / 'index.html').is_file():
+        print(f'error: {args.web} has no index.html. Run '
+              'flutter build web --no-web-resources-cdn first.', file=sys.stderr)
+        return 1
     try:
         store = ClueStore(args.db, args.reports)
     except (ValueError, sqlite3.Error) as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
-    server = make_server(store, args.host, args.port, args.token, args.quiet)
+    server = make_server(store, args.host, args.port, args.token, args.quiet, args.web)
     host, port = server.server_address[:2]
     print(f'Serving {store.max_id} clues on http://{host}:{port}/v1/random', flush=True)
+    if args.web is not None:
+        print(f'Web UI on http://{host}:{port}/', flush=True)
+        if web_build_uses_cdn(args.web):
+            print(f'Warning: {args.web} loads CanvasKit and fonts from Google, so browsers '
+                  'without internet access show a blank page. Rebuild it with '
+                  'flutter build web --no-web-resources-cdn.', flush=True)
     if args.host not in ('127.0.0.1', 'localhost', '::1'):
         print('Personal use only: keep this server off the internet (see the dataset terms '
               'in README.md).' + ('' if args.token else ' Consider --token.'), flush=True)
