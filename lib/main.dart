@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:quizapp/config/source_factory.dart';
 import 'package:quizapp/controller/question_repository.dart';
@@ -7,7 +8,8 @@ import 'quiz_page.dart';
 void main() {
   final repository = QuestionRepository(
     source: questionSourceFromEnvironment(),
-    hiddenStore: SqfliteHiddenQuestionStore(),
+    // sqflite has no web implementation.
+    hiddenStore: kIsWeb ? SharedPrefsHiddenQuestionStore() : SqfliteHiddenQuestionStore(),
   );
   runApp(QuizApp(repository: repository));
 }

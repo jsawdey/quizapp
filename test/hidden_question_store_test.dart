@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:quizapp/data/hidden_question_store.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/fakes.dart';
@@ -43,5 +44,30 @@ void main() {
 
   test('hide before open is an error', () async {
     await expectLater(store().hide(fakeQuestion('1')), throwsStateError);
+  });
+
+  group('SharedPrefsHiddenQuestionStore', () {
+    setUp(() => SharedPreferences.setMockInitialValues({}));
+
+    test('hidden questions survive reopening', () async {
+      final first = SharedPrefsHiddenQuestionStore();
+      await first.open();
+      await first.hide(fakeQuestion('1', sourceId: 'jwolle1'));
+      await first.hide(fakeQuestion('1', sourceId: 'jwolle1'));
+      await first.close();
+
+      final second = SharedPrefsHiddenQuestionStore();
+      await second.open();
+      expect(second.isHidden(fakeQuestion('1', sourceId: 'jwolle1')), isTrue);
+      expect(second.isHidden(fakeQuestion('1', sourceId: 'jservice:x')), isFalse);
+      expect(second.isHidden(fakeQuestion('2', sourceId: 'jwolle1')), isFalse);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getStringList(SharedPrefsHiddenQuestionStore.prefsKey), hasLength(1));
+    });
+
+    test('hide before open is an error', () async {
+      await expectLater(SharedPrefsHiddenQuestionStore().hide(fakeQuestion('1')),
+          throwsStateError);
+    });
   });
 }

@@ -70,6 +70,55 @@ void main() {
     });
   });
 
+  group('SourceConfig.parse on the web', () {
+    final page = Uri.parse('http://192.168.1.20:8080/index.html?x=1#top');
+
+    SourceConfig web({String source = '', String apiUrl = '', String apiDialect = '',
+        String apiToken = '', bool allowHttp = false}) => SourceConfig.parse(
+        source: source, apiUrl: apiUrl, apiDialect: apiDialect, apiToken: apiToken,
+        allowHttp: allowHttp, isWeb: true, pageUrl: page);
+
+    test('defaults to the quizapp API on the page\'s origin', () {
+      final config = web();
+      expect(config.kind, SourceKind.api);
+      expect(config.apiUrl, Uri.parse('http://192.168.1.20:8080/'));
+      expect(config.apiDialect, 'quizapp');
+      expect(config.apiToken, isNull);
+    });
+
+    test('keeps a default port out of the URL', () {
+      expect(SourceConfig.parse(isWeb: true, pageUrl: Uri.parse('https://quiz.example/'))
+          .apiUrl, Uri.parse('https://quiz.example/'));
+    });
+
+    test('allows http in release builds', () {
+      expect(web(allowHttp: false).apiUrl!.scheme, 'http');
+      expect(web(apiUrl: 'http://other.example', allowHttp: false).apiUrl!.host,
+          'other.example');
+    });
+
+    test('reads explicit settings', () {
+      final config = web(source: 'api', apiUrl: 'https://clues.example',
+          apiDialect: 'jservice');
+      expect(config.apiUrl, Uri.parse('https://clues.example'));
+      expect(config.apiDialect, 'jservice');
+    });
+
+    test('rejects the local database', () {
+      expect(() => web(source: 'local'), configError('isn\'t available in the browser'));
+      expect(() => web(source: 'api_with_local_fallback'),
+          configError('isn\'t available in the browser'));
+    });
+
+    test('rejects a compiled-in token', () {
+      expect(() => web(apiToken: 'secret'), configError('QUESTION_API_TOKEN'));
+    });
+
+    test('needs a page URL or an API URL', () {
+      expect(() => SourceConfig.parse(isWeb: true), configError('QUESTION_API_URL'));
+    });
+  });
+
   group('createQuestionSource', () {
     test('local', () {
       expect(createQuestionSource(SourceConfig.local), isA<LocalQuestionSource>());

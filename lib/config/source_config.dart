@@ -34,6 +34,11 @@ class SourceConfigError implements Exception {
 /// - `QUESTION_API_DIALECT`: which API it is; one of [apiDialects]
 /// - `QUESTION_API_TOKEN`: optional bearer token. It is compiled into the app,
 ///   so it is not a secret.
+///
+/// Web builds read from the server that served the page: the source defaults
+/// to `api`, the URL to the page's origin and the dialect to `quizapp`. The
+/// clue database isn't available there, and the token is entered in the page
+/// instead, because a compiled-in token would be readable by every visitor.
 class SourceConfig {
   final SourceKind kind;
   final Uri? apiUrl;
@@ -51,37 +56,59 @@ class SourceConfig {
         apiDialect: const String.fromEnvironment('QUESTION_API_DIALECT'),
         apiToken: const String.fromEnvironment('QUESTION_API_TOKEN'),
         allowHttp: !kReleaseMode,
+        isWeb: kIsWeb,
+        pageUrl: kIsWeb ? Uri.base : null,
       );
 
   /// Throws [SourceConfigError]. Empty strings count as unset.
+  ///
+  /// With [isWeb], the defaults and checks for web builds apply (see the
+  /// class comment); [pageUrl] is the page's address, whose origin is the
+  /// default API URL.
   factory SourceConfig.parse({String source = '', String apiUrl = '',
-      String apiDialect = '', String apiToken = '', bool allowHttp = false}) {
+      String apiDialect = '', String apiToken = '', bool allowHttp = false,
+      bool isWeb = false, Uri? pageUrl}) {
     final name = source.trim();
     final kind = name.isEmpty
-        ? SourceKind.local
+        ? (isWeb ? SourceKind.api : SourceKind.local)
         : SourceKind.values.where((k) => k.configName == name).firstOrNull;
     if (kind == null) {
       throw SourceConfigError(
           'QUESTION_SOURCE is "$source"; it must be one of: '
           '${SourceKind.values.map((k) => k.configName).join(', ')}.');
     }
+    if (isWeb && kind != SourceKind.api) {
+      throw SourceConfigError('QUESTION_SOURCE is "${kind.configName}", but the clue '
+          'database isn\'t available in the browser. Serve it with '
+          'tool/serve_clues.py and use "api".');
+    }
     if (!kind.usesApi) return local;
 
-    final url = Uri.tryParse(apiUrl.trim());
-    if (apiUrl.trim().isEmpty || url == null || !url.hasAuthority ||
+    final urlText = apiUrl.trim().isEmpty && isWeb && pageUrl != null
+        ? Uri(scheme: pageUrl.scheme, host: pageUrl.host,
+              port: pageUrl.hasPort ? pageUrl.port : null, path: '/').toString()
+        : apiUrl.trim();
+    final url = Uri.tryParse(urlText);
+    if (urlText.isEmpty || url == null || !url.hasAuthority ||
         url.host.isEmpty || !(url.isScheme('https') || url.isScheme('http'))) {
-      throw SourceConfigError('QUESTION_SOURCE is "$name", so QUESTION_API_URL must be '
-          'an http(s) URL, not "$apiUrl".');
+      throw SourceConfigError('QUESTION_SOURCE is "${kind.configName}", so QUESTION_API_URL '
+          'must be an http(s) URL, not "$apiUrl".');
     }
-    if (url.isScheme('http') && !allowHttp) {
+    // In a browser, mixed-content rules decide whether http is allowed.
+    if (url.isScheme('http') && !allowHttp && !isWeb) {
       throw SourceConfigError('QUESTION_API_URL must use https in release builds: $apiUrl');
     }
-    final dialect = apiDialect.trim();
+    final dialectText = apiDialect.trim();
+    final dialect = dialectText.isEmpty && isWeb ? 'quizapp' : dialectText;
     if (!apiDialects.containsKey(dialect)) {
       throw SourceConfigError('QUESTION_API_DIALECT is "$apiDialect"; it must be one of: '
           '${apiDialects.keys.join(', ')}.');
     }
     final token = apiToken.trim();
+    if (isWeb && token.isNotEmpty) {
+      throw const SourceConfigError('QUESTION_API_TOKEN would be readable by anyone who '
+          'loads the page. Leave it out of web builds; the page asks for the token.');
+    }
     return SourceConfig._(kind, apiUrl: url, apiDialect: dialect,
         apiToken: token.isEmpty ? null : token);
   }

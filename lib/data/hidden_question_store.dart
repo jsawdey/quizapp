@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:quizapp/model/question.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:sqflite/sqflite.dart' as sqflite;
 
 /// Questions the user has hidden, keyed by (sourceId, key) so the list works
@@ -89,6 +90,46 @@ class SqfliteHiddenQuestionStore implements HiddenQuestionStore {
     await _db?.close();
     _db = null;
   }
+}
+
+/// Stores hidden questions with shared_preferences, which is the browser's
+/// localStorage on the web, where sqflite isn't available. Like the sqflite
+/// store, it loads everything into memory on open.
+class SharedPrefsHiddenQuestionStore implements HiddenQuestionStore {
+  static const prefsKey = 'hidden_questions';
+
+  final Future<SharedPreferences> Function() _prefs;
+  SharedPreferences? _store;
+  final Set<String> _hidden = {};
+
+  SharedPrefsHiddenQuestionStore({Future<SharedPreferences> Function()? prefs})
+      : _prefs = prefs ?? SharedPreferences.getInstance;
+
+  @override
+  Future<void> open() async {
+    if (_store != null) return;
+    final store = await _prefs();
+    _hidden
+      ..clear()
+      ..addAll(store.getStringList(prefsKey) ?? const []);
+    _store = store;
+  }
+
+  @override
+  bool isHidden(JeopardyQuestion question) => _hidden.contains(_id(question));
+
+  @override
+  Future<void> hide(JeopardyQuestion question) async {
+    final store = _store;
+    if (store == null) throw StateError('HiddenQuestionStore is not open');
+    final id = _id(question);
+    if (_hidden.contains(id)) return;
+    await store.setStringList(prefsKey, [..._hidden, id]);
+    _hidden.add(id);
+  }
+
+  @override
+  Future<void> close() async => _store = null;
 }
 
 String _id(JeopardyQuestion q) => _key(q.sourceId, q.key);
