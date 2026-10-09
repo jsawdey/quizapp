@@ -1,0 +1,9 @@
+# Settings for `flutter run -d chrome` (Flutter's web dev server). Requests
+# for the quizapp API go to tool/serve_clues.py on this computer, so the app
+# under development reads real clues from the same origin, as it does when
+# serve_clues.py --web serves a build. Start the server first:
+#   python3 tool/serve_clues.py
+server:
+  proxy:
+    - target: http://localhost:8080/
+      prefix: /v1/

@@ -2,7 +2,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:quizapp/data/fallback_question_source.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
+import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
+import 'package:quizapp/data/token_store.dart';
 import 'package:quizapp/model/question.dart';
 
 /// What the UI talks to. Forwards to a [QuestionSource] and handles what is
@@ -14,9 +16,16 @@ class QuestionRepository {
 
   final QuestionSource source;
   final HiddenQuestionStore hiddenStore;
+
+  /// Where an access token entered in the app is kept, and the credentials the
+  /// source sends. Both are set in web builds, which ask for the token
+  /// instead of compiling it in.
+  final TokenStore? tokenStore;
+  final ApiCredentials? credentials;
   Future<void>? _opening;
 
-  QuestionRepository({required this.source, required this.hiddenStore});
+  QuestionRepository({required this.source, required this.hiddenStore,
+    this.tokenStore, this.credentials});
 
   /// Opens the source and the hidden-question store. Safe to call more than
   /// once; a failed open is retried on the next call.
@@ -24,6 +33,11 @@ class QuestionRepository {
 
   Future<void> _open() async {
     try {
+      final tokenStore = this.tokenStore;
+      final credentials = this.credentials;
+      if (tokenStore != null && credentials != null) {
+        credentials.token = await tokenStore.read() ?? credentials.token;
+      }
       await Future.wait([source.open(), hiddenStore.open()]);
     } catch (_) {
       _opening = null;
@@ -39,6 +53,22 @@ class QuestionRepository {
       if (!hiddenStore.isHidden(question)) return question;
     }
     throw const NoQuestionFound('Every question tried has been hidden.');
+  }
+
+  /// Whether the app can ask for an access token when the source needs one.
+  bool get canSetToken => tokenStore != null && credentials != null;
+
+  /// Saves [token] and uses it from the next request on. Only allowed when
+  /// [canSetToken].
+  Future<void> setToken(String token) async {
+    final tokenStore = this.tokenStore;
+    final credentials = this.credentials;
+    if (tokenStore == null || credentials == null) {
+      throw StateError('This repository has no token store');
+    }
+    final trimmed = token.trim();
+    await tokenStore.write(trimmed);
+    credentials.token = trimmed;
   }
 
   /// Whether hiding [question] also reports it to the source.

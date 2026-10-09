@@ -1,4 +1,6 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:quizapp/controller/question_repository.dart';
 import 'package:quizapp/data/question_source.dart';
@@ -9,6 +11,36 @@ import 'package:quizapp/ui/theme.dart';
 enum DialogAnswer {
   hide,
   cancel
+}
+
+class _FlipIntent extends Intent {
+  const _FlipIntent();
+}
+
+class _NextIntent extends Intent {
+  const _NextIntent();
+}
+
+class _HideIntent extends Intent {
+  const _HideIntent();
+}
+
+/// A keyboard shortcut's action. While [enabled] returns false the key isn't
+/// handled, so it still reaches a text field.
+class _ShortcutAction<T extends Intent> extends Action<T> {
+  final bool Function() enabled;
+  final VoidCallback onInvoke;
+
+  _ShortcutAction(this.enabled, this.onInvoke);
+
+  @override
+  bool isEnabled(T intent) => enabled();
+
+  @override
+  Object? invoke(T intent) {
+    onInvoke();
+    return null;
+  }
 }
 
 class QuizPage extends StatefulWidget {
@@ -28,13 +60,34 @@ class _QuizPageState extends State<QuizPage> {
   bool _showAnswer = false;
   bool _questionHidden = false;
   bool _showOverlay = false;
+  /// Whether the error is a missing or rejected token the user can enter.
+  bool _needsToken = false;
+  final _tokenController = TextEditingController();
+  final _tokenFocus = FocusNode();
+  /// Holds focus for the keyboard shortcuts.
+  final _pageFocus = FocusNode(debugLabel: 'QuizPage');
 
   static final _dollars = NumberFormat.simpleCurrency(locale: 'en_US', decimalDigits: 0);
+
+  /// The board's widest size, so it keeps its shape in a wide browser window.
+  static const maxBoardWidth = 900.0;
+
+  /// Whether to mention keyboard shortcuts: in a browser or on a desktop.
+  static bool get _hasKeyboard => kIsWeb || const {TargetPlatform.linux,
+      TargetPlatform.macOS, TargetPlatform.windows}.contains(defaultTargetPlatform);
 
   @override
   void initState() {
     super.initState();
     _loadQuestion();
+  }
+
+  @override
+  void dispose() {
+    _tokenController.dispose();
+    _tokenFocus.dispose();
+    _pageFocus.dispose();
+    super.dispose();
   }
 
   Future<void> _loadQuestion() async {
@@ -46,12 +99,18 @@ class _QuizPageState extends State<QuizPage> {
     try {
       final question = await widget.repository.next();
       if (!mounted) return;
+      // A browser drops focus along with the token field, which would leave
+      // the shortcuts dead until the page is clicked.
+      if (_needsToken) _pageFocus.requestFocus();
       setState(() {
         _current = question;
         _showAnswer = false;
         _questionHidden = false;
         _showOverlay = false;
+        _needsToken = false;
       });
+    } on Unauthorized catch (e) {
+      _showError(e.message, needsToken: widget.repository.canSetToken);
     } on SourceUnavailable catch (e) {
       _showError(e.message);
     } on NoQuestionFound catch (e) {
@@ -64,13 +123,56 @@ class _QuizPageState extends State<QuizPage> {
     }
   }
 
-  void _showError(String message) {
+  void _showError(String message, {bool needsToken = false}) {
     if (!mounted) return;
     setState(() {
       _current = null;
       _error = message;
+      _needsToken = needsToken;
     });
+    // The page itself holds focus for the keyboard shortcuts, so the field's
+    // autofocus wouldn't take; focus it once it's built.
+    if (needsToken) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _needsToken) _tokenFocus.requestFocus();
+      });
+    }
   }
+
+  Future<void> _connect() async {
+    final token = _tokenController.text.trim();
+    if (token.isEmpty || _loading) return;
+    try {
+      await widget.repository.setToken(token);
+    } catch (e) {
+      debugPrint('Could not save the access token: $e');
+    }
+    _tokenController.clear();
+    await _loadQuestion();
+  }
+
+  void _toggleAnswer() {
+    if (_current == null) return;
+    setState(() => _showAnswer = !_showAnswer);
+  }
+
+  // The keyboard shortcuts only work while a question is showing, so keys
+  // typed into the access token field (shown instead of a question) reach it.
+  late final Map<Type, Action<Intent>> _shortcutActions = {
+    _FlipIntent: _ShortcutAction<_FlipIntent>(() => _current != null, _toggleAnswer),
+    _NextIntent: _ShortcutAction<_NextIntent>(
+        () => _current != null && !_loading, _loadQuestion),
+    _HideIntent: _ShortcutAction<_HideIntent>(
+        () => _current != null && !_questionHidden && !_loading, _hideQuestion),
+  };
+
+  static const _shortcuts = <ShortcutActivator, Intent>{
+    SingleActivator(LogicalKeyboardKey.space): _FlipIntent(),
+    SingleActivator(LogicalKeyboardKey.enter): _FlipIntent(),
+    SingleActivator(LogicalKeyboardKey.keyN): _NextIntent(),
+    SingleActivator(LogicalKeyboardKey.arrowRight): _NextIntent(),
+    SingleActivator(LogicalKeyboardKey.keyH): _HideIntent(),
+  };
 
   Future<void> _hideQuestion() async {
     final current = _current;
@@ -138,14 +240,13 @@ class _QuizPageState extends State<QuizPage> {
   Widget _buildQuestionAnswerWidget() {
     final current = _current;
     if (current != null) {
-      return GestureDetector(
-        onTap: () {
-          setState(() {
-            _showAnswer = !_showAnswer;
-          });
-        },
-        child: QuizDecorationWrapper(QuestionAnswerWidget(
-            _showAnswer ? current.answer : current.question)),
+      return MouseRegion(
+        cursor: SystemMouseCursors.click,
+        child: GestureDetector(
+          onTap: _toggleAnswer,
+          child: QuizDecorationWrapper(QuestionAnswerWidget(
+              _showAnswer ? current.answer : current.question)),
+        ),
       );
     }
     final error = _error;
@@ -157,12 +258,35 @@ class _QuizPageState extends State<QuizPage> {
             Text(error, textAlign: TextAlign.center,
                 style: CustomAppTheme.messageTextTheme()),
             const SizedBox(height: 16.0),
+            if (_needsToken) ...[
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 320.0),
+                child: TextField(
+                  controller: _tokenController,
+                  focusNode: _tokenFocus,
+                  obscureText: true,
+                  style: const TextStyle(color: Colors.white),
+                  cursorColor: Colors.white,
+                  decoration: const InputDecoration(
+                    labelText: 'Access token',
+                    labelStyle: TextStyle(color: Colors.white70),
+                    floatingLabelStyle: TextStyle(color: Colors.white),
+                    enabledBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.white70)),
+                    focusedBorder: OutlineInputBorder(
+                        borderSide: BorderSide(color: Colors.white)),
+                  ),
+                  onSubmitted: (_) => _connect(),
+                ),
+              ),
+              const SizedBox(height: 16.0),
+            ],
             OutlinedButton(
               style: OutlinedButton.styleFrom(
                   foregroundColor: Colors.white,
                   side: const BorderSide(color: Colors.white)),
-              onPressed: _loadQuestion,
-              child: const Text('Retry'),
+              onPressed: _needsToken ? _connect : _loadQuestion,
+              child: Text(_needsToken ? 'Connect' : 'Retry'),
             ),
           ],
         ),
@@ -183,36 +307,40 @@ class _QuizPageState extends State<QuizPage> {
     final canHide = current != null && !_questionHidden && !_loading;
     return Container(
       color: Colors.black87,
-      child: Column(
-        children: <Widget>[
-          Flexible(
-            flex: 2,
-            child: QuizDecorationWrapper(current == null
-                ? const QuestionCategoryWidget('')
-                : QuestionCategoryWidget(current.category,
-                    detail: _detailFor(current), comment: current.categoryComment)),
-          ),
-          Flexible(
-              flex: 4,
-              child: _buildQuestionAnswerWidget(),
-          ),
-          Flexible(
-            flex: 1,
-            child: Center(
-              child: TextButton(
-                  style: TextButton.styleFrom(padding: const EdgeInsets.all(4.0)),
-                  onPressed: canHide ? _hideQuestion : null,
-                  child: Text(
-                    'Hide Question',
-                    style: TextStyle(
-                      color: canHide ? Colors.white : Colors.white38,
-                      decoration: TextDecoration.underline,
-                    ),
-                  )
+      alignment: Alignment.topCenter,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: maxBoardWidth),
+        child: Column(
+          children: <Widget>[
+            Flexible(
+              flex: 2,
+              child: QuizDecorationWrapper(current == null
+                  ? const QuestionCategoryWidget('')
+                  : QuestionCategoryWidget(current.category,
+                      detail: _detailFor(current), comment: current.categoryComment)),
+            ),
+            Flexible(
+                flex: 4,
+                child: _buildQuestionAnswerWidget(),
+            ),
+            Flexible(
+              flex: 1,
+              child: Center(
+                child: TextButton(
+                    style: TextButton.styleFrom(padding: const EdgeInsets.all(4.0)),
+                    onPressed: canHide ? _hideQuestion : null,
+                    child: Text(
+                      'Hide Question',
+                      style: TextStyle(
+                        color: canHide ? Colors.white : Colors.white38,
+                        decoration: TextDecoration.underline,
+                      ),
+                    )
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -240,10 +368,18 @@ class _QuizPageState extends State<QuizPage> {
           })
         ],
       ),
-      body: _buildOverlay(),
+      body: Shortcuts(
+        shortcuts: _shortcuts,
+        child: Actions(
+          actions: _shortcutActions,
+          child: Focus(focusNode: _pageFocus, autofocus: true, child: _buildOverlay()),
+        ),
+      ),
       floatingActionButton: FloatingActionButton(
         onPressed: _loading ? null : _loadQuestion,
-        tooltip: 'Load Random Question',
+        tooltip: _hasKeyboard
+            ? 'Load Random Question (N). Space shows the response; H hides the question.'
+            : 'Load Random Question',
         child: const Icon(Icons.refresh),
       ),
     );

@@ -6,30 +6,33 @@ import 'package:quizapp/data/local_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
 import 'package:quizapp/model/question.dart';
 
-/// Builds the question source described by [config].
-QuestionSource createQuestionSource(SourceConfig config) {
+/// Builds the question source described by [config]. An API source sends
+/// the token in [credentials] if given, else the configured one.
+QuestionSource createQuestionSource(SourceConfig config, {ApiCredentials? credentials}) {
   switch (config.kind) {
     case SourceKind.local:
       return LocalQuestionSource();
     case SourceKind.api:
-      return _api(config);
+      return _api(config, credentials);
     case SourceKind.apiWithLocalFallback:
-      return FallbackQuestionSource(primary: _api(config), fallback: LocalQuestionSource());
+      return FallbackQuestionSource(primary: _api(config, credentials),
+          fallback: LocalQuestionSource());
   }
 }
 
-HttpQuestionSource _api(SourceConfig config) => HttpQuestionSource(
+HttpQuestionSource _api(SourceConfig config, ApiCredentials? credentials) =>
+    HttpQuestionSource(
       baseUrl: config.apiUrl!,
       dialect: apiDialects[config.apiDialect]!(),
-      token: config.apiToken,
+      credentials: credentials ?? ApiCredentials(config.apiToken),
     );
 
 /// Builds the source this build was configured with. A bad configuration
 /// gives a source whose [QuestionSource.open] fails with the problem, so the
 /// app reports it instead of crashing.
-QuestionSource questionSourceFromEnvironment() {
+QuestionSource questionSourceFromEnvironment({ApiCredentials? credentials}) {
   try {
-    return createQuestionSource(SourceConfig.fromEnvironment());
+    return createQuestionSource(SourceConfig.fromEnvironment(), credentials: credentials);
   } on SourceConfigError catch (e) {
     return UnavailableQuestionSource('Invalid question source settings: ${e.message}');
   }

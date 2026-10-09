@@ -1,3 +1,4 @@
+import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
 import 'package:quizapp/model/question.dart';
 
@@ -58,4 +59,26 @@ class FakeQuestionSource extends QuestionSource {
 
   @override
   Future<void> close() async => closes++;
+}
+
+/// Serves questions only while [credentials] hold [token], like an API
+/// started with --token.
+class TokenGuardedSource extends FakeQuestionSource {
+  final ApiCredentials credentials;
+  final String token;
+  int requests = 0;
+
+  TokenGuardedSource(super.questions, {required this.credentials, required this.token});
+
+  @override
+  Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
+    requests++;
+    final sent = credentials.token;
+    if (sent != token) {
+      throw Unauthorized(sent == null
+          ? 'fake source needs an access token.'
+          : 'fake source rejected the access token.');
+    }
+    return super.randomQuestion(filter: filter);
+  }
 }

@@ -184,6 +184,33 @@ void main() {
       expect(requests.single.headers.containsKey('Authorization'), isFalse);
     });
 
+    test('401 and 403 are Unauthorized', () async {
+      final anonymous = sourceWith((_) => http.Response('{"error": "token"}', 401));
+      await expectLater(anonymous.randomQuestion(), throwsA(isA<Unauthorized>()
+          .having((e) => e.message, 'message', 'example.test needs an access token.')));
+
+      final wrong = sourceWith((_) => http.Response('', 403), token: 'wrong');
+      await expectLater(wrong.randomQuestion(), throwsA(isA<Unauthorized>()
+          .having((e) => e.message, 'message', 'example.test rejected the access token.')));
+    });
+
+    test('a changed token is sent from the next request on', () async {
+      requests = [];
+      final credentials = ApiCredentials();
+      final source = HttpQuestionSource(baseUrl: base, dialect: JServiceDialect(),
+          credentials: credentials,
+          client: MockClient((request) async {
+            requests.add(request);
+            return request.headers['Authorization'] == 'Bearer right'
+                ? http.Response(jServiceBatch(10), 200)
+                : http.Response('', 401);
+          }));
+      await expectLater(source.randomQuestion(), throwsA(isA<Unauthorized>()));
+      credentials.token = 'right';
+      expect((await source.randomQuestion()).key, '1');
+      expect(source.token, 'right');
+    });
+
     test('a server error is SourceUnavailable', () async {
       final source = sourceWith((_) => http.Response('oops', 500));
       await expectLater(source.randomQuestion(), throwsA(isA<SourceUnavailable>()
