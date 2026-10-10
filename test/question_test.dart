@@ -115,6 +115,33 @@ void main() {
       expect(const QuestionFilter(boardRows: {5}), isNot(QuestionFilter.any));
     });
 
+    test('categories and difficulties match by name', () {
+      const filter = QuestionFilter(categories: {'Geography', 'Art'},
+          difficulties: {'easy', 'medium'});
+      expect(filter.matches(fakeQuestion('1', category: 'Art', difficulty: 'easy')), isTrue);
+      expect(filter.matches(fakeQuestion('1', category: 'History', difficulty: 'easy')),
+          isFalse);
+      expect(filter.matches(fakeQuestion('1', category: 'Art', difficulty: 'hard')), isFalse);
+      // Jeopardy clues have no difficulty.
+      expect(filter.matches(fakeQuestion('1', category: 'Art')), isFalse);
+      expect(const QuestionFilter(categories: {'Art'})
+          .matches(fakeQuestion('1', category: 'Art')), isTrue);
+    });
+
+    test('no categories and every difficulty are no filter', () {
+      expect(const QuestionFilter(categories: {}).normalized(), QuestionFilter.any);
+      expect(const QuestionFilter(difficulties: {'easy', 'medium', 'hard'}).normalized(),
+          QuestionFilter.any);
+      expect(const QuestionFilter(difficulties: {'hard'}).normalized(),
+          const QuestionFilter(difficulties: {'hard'}));
+      expect(const QuestionFilter(categories: {'A', 'B'}),
+          const QuestionFilter(categories: {'B', 'A'}));
+      expect(const QuestionFilter(categories: {'A', 'B'}).hashCode,
+          const QuestionFilter(categories: {'B', 'A'}).hashCode);
+      expect(const QuestionFilter(categories: {'A'}),
+          isNot(const QuestionFilter(difficulties: {'A'})));
+    });
+
     test('filters with the same values are equal', () {
       expect(QuestionFilter(rounds: {1, 2}, from: DateTime(2000)),
           QuestionFilter(rounds: {2, 1}, from: DateTime(2000)));

@@ -729,6 +729,77 @@ void main() {
       expect(store.filter, const QuestionFilter(rounds: {3}));
     });
 
+    group('for general trivia', () {
+      const triviaFilters = {FilterKind.category, FilterKind.difficulty};
+      const categories = ['Art', 'Geography', 'History'];
+
+      setUp(() {
+        source = FakeQuestionSource([
+          fakeQuestion('1', category: 'Art', difficulty: 'easy', value: null),
+          fakeQuestion('2', category: 'History', difficulty: 'hard', value: null),
+        ], supportedFilters: triviaFilters, categories: categories);
+      });
+
+      testWidgets('offers categories and difficulty, not rounds or years',
+          (WidgetTester tester) async {
+        await pumpFiltered(tester);
+        expect(find.byTooltip('Filter questions'), findsOneWidget);
+        await openSheet(tester);
+        expect(find.text('Filter questions'), findsOneWidget);
+        expect(find.text('Rounds'), findsNothing);
+        expect(find.text('Years'), findsNothing);
+        for (final name in [...categories, 'Easy', 'Medium', 'Hard']) {
+          expect(find.widgetWithText(FilterChip, name), findsOneWidget, reason: name);
+        }
+        expect(find.text('Every category. Choose some to play only those.'), findsOneWidget);
+        // No category chosen means every category, so none is selected.
+        expect(chip(tester, 'Art').selected, isFalse);
+        expect(chip(tester, 'Hard').selected, isTrue);
+      });
+
+      testWidgets('choosing categories and a difficulty', (WidgetTester tester) async {
+        await pumpFiltered(tester);
+        await openSheet(tester);
+        await tapChip(tester, 'History');
+        await tapChip(tester, 'Art');
+        expect(find.text('2 chosen.'), findsOneWidget);
+        await tapChip(tester, 'Easy');
+        await tapChip(tester, 'Medium');
+        // The last difficulty can't be turned off.
+        expect(chip(tester, 'Hard').onSelected, isNull);
+        await apply(tester);
+
+        const chosen = QuestionFilter(categories: {'Art', 'History'}, difficulties: {'hard'});
+        expect(store.filter, chosen);
+        expect(source.lastFilter, chosen);
+        expect(find.byTooltip('Filters: Art, History, Hard'), findsOneWidget);
+
+        // Every category can be turned off again.
+        await openSheet(tester);
+        await tapChip(tester, 'Art');
+        await tapChip(tester, 'History');
+        await tapChip(tester, 'Easy');
+        await apply(tester);
+        expect(store.filter, const QuestionFilter(difficulties: {'easy', 'hard'}));
+      });
+
+      testWidgets('many categories are counted', (WidgetTester tester) async {
+        store.filter = const QuestionFilter(categories: {'Art', 'Geography', 'History'});
+        await pumpFiltered(tester);
+        expect(find.byTooltip('Filters: 3 categories'), findsOneWidget);
+      });
+
+      testWidgets('says when the categories can\'t be loaded', (WidgetTester tester) async {
+        source.categoriesError = const SourceUnavailable('offline');
+        await pumpFiltered(tester);
+        await openSheet(tester);
+        expect(find.text("The categories couldn't be loaded."), findsOneWidget);
+        await tapChip(tester, 'Easy');
+        await apply(tester);
+        expect(store.filter, const QuestionFilter(difficulties: {'medium', 'hard'}));
+      });
+    });
+
     testWidgets('the sheet only offers what the source supports', (WidgetTester tester) async {
       source = FakeQuestionSource([fakeQuestion('1')], supportedFilters: {FilterKind.airDate});
       await pumpFiltered(tester);

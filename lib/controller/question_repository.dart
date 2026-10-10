@@ -59,7 +59,8 @@ class QuestionRepository {
     if (filterStore == null || _filterChosen) return;
     try {
       final saved = await filterStore.read();
-      if (!_filterChosen) _filter = _usable(saved);
+      // Kept whole: [filter] drops what the source can't apply each time.
+      if (!_filterChosen) _filter = saved.normalized();
     } catch (error) {
       debugPrint('Could not read the saved filter: $error');
     }
@@ -68,12 +69,19 @@ class QuestionRepository {
   QuestionFilter _usable(QuestionFilter filter) =>
       filter.normalized().limitedTo(source.supportedFilters);
 
-  /// The filters the source can apply; the app offers only these.
+  /// The filters the source can apply; the app offers only these. A
+  /// `quizapp` API only says which it supports once it's open.
   Set<FilterKind> get supportedFilters => source.supportedFilters;
 
+  /// The category names the source offers for [QuestionFilter.categories].
+  Future<List<String>> filterCategories() async {
+    await open();
+    return source.filterCategories();
+  }
+
   /// The filter [next] applies: the one last chosen, or the saved one once
-  /// the repository is open, without anything the source can't apply.
-  QuestionFilter get filter => _filter;
+  /// the repository is open, without anything the source can't apply now.
+  QuestionFilter get filter => _usable(_filter);
 
   /// Uses [filter] from the next question on, and saves it. A failed save is
   /// thrown, but the filter still applies until the app closes.
@@ -87,7 +95,7 @@ class QuestionRepository {
   /// given, else [QuestionRepository.filter].
   Future<Question> next({QuestionFilter? filter}) async {
     await open();
-    final using = filter ?? _filter;
+    final using = filter ?? this.filter;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       final question = await source.randomQuestion(filter: using);
       if (!hiddenStore.isHidden(question)) return question;

@@ -191,8 +191,19 @@ class _QuizPageState extends State<QuizPage> {
 
   Future<void> _openFilters() async {
     final repository = widget.repository;
+    final supported = repository.supportedFilters;
+    var categories = const <String>[];
+    if (supported.contains(FilterKind.category)) {
+      try {
+        categories = await repository.filterCategories();
+      } catch (e) {
+        // The sheet says so, and the other filters still work.
+        debugPrint('Could not load the categories: $e');
+      }
+      if (!mounted) return;
+    }
     final chosen = await showFilterSheet(context,
-        current: repository.filter, supported: repository.supportedFilters);
+        current: repository.filter, supported: supported, categories: categories);
     if (chosen == null || !mounted) return;
     await _applyFilter(chosen);
   }
@@ -410,7 +421,10 @@ class _QuizPageState extends State<QuizPage> {
     final filter = widget.repository.filter;
     return IconButton(
       icon: Icon(filter.isAny ? Icons.filter_alt_outlined : Icons.filter_alt),
-      tooltip: filter.isAny ? 'Filter clues' : 'Filters: ${describeFilter(filter)}',
+      tooltip: filter.isAny
+          ? (widget.repository.supportedFilters.contains(FilterKind.round)
+              ? 'Filter clues' : 'Filter questions')
+          : 'Filters: ${describeFilter(filter)}',
       // A question loading now would be for the old filter.
       onPressed: _loading ? null : _openFilters,
     );

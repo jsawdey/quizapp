@@ -20,9 +20,13 @@ class FakeQuestionSource extends QuestionSource {
   @override
   final bool supportsRemoteReport;
   @override
-  final Set<FilterKind> supportedFilters;
+  Set<FilterKind> supportedFilters;
   @override
   final String? attribution;
+
+  /// What [filterCategories] returns, or throws if [categoriesError] is set.
+  List<String> categories;
+  Object? categoriesError;
   Object? reportError;
 
   /// The filter randomQuestion was last called with.
@@ -37,7 +41,14 @@ class FakeQuestionSource extends QuestionSource {
   final List<Question> reported = [];
 
   FakeQuestionSource(this.questions, {this.supportsRemoteReport = false,
-    this.supportedFilters = const {}, this.attribution});
+    this.supportedFilters = const {}, this.attribution, this.categories = const []});
+
+  @override
+  Future<List<String>> filterCategories() async {
+    final e = categoriesError;
+    if (e != null) throw e;
+    return categories;
+  }
 
   @override
   String get description => 'fake source';

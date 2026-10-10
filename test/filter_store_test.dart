@@ -22,6 +22,16 @@ void main() {
           '{"rounds":[1,2],"from":"1990-01-01","to":"1999-12-31","rows":[4,5]}');
     });
 
+    test('round trip with categories and difficulties', () async {
+      const trivia = QuestionFilter(categories: {'Geography', 'Art'},
+          difficulties: {'hard', 'easy'});
+      await SharedPrefsFilterStore().write(trivia);
+      expect(await SharedPrefsFilterStore().read(), trivia);
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getString(SharedPrefsFilterStore.prefsKey),
+          '{"categories":["Art","Geography"],"difficulties":["easy","hard"]}');
+    });
+
     test('saving any removes the saved filter', () async {
       final store = SharedPrefsFilterStore();
       await store.write(nineties);
@@ -47,6 +57,8 @@ void main() {
       // Saved before board rows existed: any row.
       expect(decodeFilter('{"rounds":[3]}').boardRows, isNull);
       expect(decodeFilter('{"rows":[5,"x"]}'), QuestionFilter.any);
+      expect(decodeFilter('{"categories":["Art",3],"difficulties":["hard"]}'),
+          const QuestionFilter(difficulties: {'hard'}));
     });
 
     test('reads anything unexpected as any', () {

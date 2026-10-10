@@ -48,5 +48,25 @@ void main() {
     const rows = QuestionFilter(boardRows: {4, 5});
     expect(rows.limitedTo(all), rows);
     expect(rows.limitedTo(both), QuestionFilter.any);
+    const trivia = QuestionFilter(categories: {'Art'}, difficulties: {'hard'});
+    expect(trivia.limitedTo(all), QuestionFilter.any);
+    expect(trivia.limitedTo({FilterKind.category}), const QuestionFilter(categories: {'Art'}));
+    expect(trivia.limitedTo({FilterKind.difficulty}),
+        const QuestionFilter(difficulties: {'hard'}));
+  });
+
+  test('a fallback source offers the categories both open sources do', () async {
+    final primary = FakeQuestionSource([fakeQuestion('p')],
+        categories: ['Art', 'Geography', 'History']);
+    final fallback = FakeQuestionSource([fakeQuestion('f')],
+        categories: ['History', 'Art']);
+    final source = FallbackQuestionSource(primary: primary, fallback: fallback);
+    // Nothing is open yet, and asking opens nothing.
+    expect(await source.filterCategories(), isEmpty);
+    await source.randomQuestion();
+    expect(await source.filterCategories(), ['Art', 'Geography', 'History']);
+    primary.error = const SourceUnavailable('offline');
+    await source.randomQuestion();
+    expect(await source.filterCategories(), ['Art', 'History']);
   });
 }

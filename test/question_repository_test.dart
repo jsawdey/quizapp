@@ -182,6 +182,27 @@ void main() {
       expect(store.filter, QuestionFilter.any);
     });
 
+    test('applies only what the source supports now', () async {
+      // A quizapp API says which filters it supports once it's open.
+      final source = FakeQuestionSource([fakeQuestion('1')], supportedFilters: const {});
+      const trivia = QuestionFilter(difficulties: {'hard'});
+      final repository = filtered(source, InMemoryFilterStore(trivia));
+      await repository.open();
+      source.supportedFilters = const {FilterKind.difficulty};
+      expect(repository.filter, trivia);
+      await repository.next();
+      expect(source.lastFilter, trivia);
+      source.supportedFilters = const {};
+      expect(repository.filter, QuestionFilter.any);
+    });
+
+    test('filterCategories opens the source and asks it', () async {
+      final source = FakeQuestionSource([fakeQuestion('1')], categories: ['Art']);
+      final repository = filtered(source, InMemoryFilterStore());
+      expect(await repository.filterCategories(), ['Art']);
+      expect(source.opens, 1);
+    });
+
     test('an explicit filter overrides the chosen one', () async {
       final source = FakeQuestionSource([fakeQuestion('1')], supportedFilters: both);
       final repository = filtered(source, InMemoryFilterStore(nineties));

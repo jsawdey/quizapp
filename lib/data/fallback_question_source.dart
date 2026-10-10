@@ -47,6 +47,19 @@ class FallbackQuestionSource extends QuestionSource {
   Set<FilterKind> get supportedFilters =>
       primary.supportedFilters.intersection(fallback.supportedFilters);
 
+  /// The categories both sources offer, in the primary's order: as with
+  /// [supportedFilters], a filter must work on either. Asks only the sources
+  /// already open, since asking opens nothing.
+  @override
+  Future<List<String>> filterCategories() async {
+    final primaryCategories = _primaryOpen ? await primary.filterCategories() : null;
+    final fallbackCategories = _fallbackOpen ? await fallback.filterCategories() : null;
+    if (primaryCategories == null) return fallbackCategories ?? const [];
+    if (fallbackCategories == null) return primaryCategories;
+    final shared = fallbackCategories.toSet();
+    return [for (final name in primaryCategories) if (shared.contains(name)) name];
+  }
+
   /// Opens nothing up front: each source is opened the first time it's
   /// needed, so a build without a fallback database works while the primary
   /// does, and a primary that's down at launch doesn't stop the fallback.

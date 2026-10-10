@@ -24,7 +24,8 @@ class InMemoryFilterStore implements FilterStore {
 }
 
 /// Keeps the filter with shared_preferences, as JSON such as
-/// `{"rounds":[1,2],"from":"1990-01-01","to":"1999-12-31","rows":[4,5]}`.
+/// `{"rounds":[1,2],"from":"1990-01-01","to":"1999-12-31","rows":[4,5]}` or
+/// `{"categories":["Geography"],"difficulties":["easy"]}`.
 /// A missing key means that part isn't filtered.
 class SharedPrefsFilterStore implements FilterStore {
   static const prefsKey = 'question_filter';
@@ -55,11 +56,15 @@ class SharedPrefsFilterStore implements FilterStore {
 String encodeFilter(QuestionFilter filter) {
   final rounds = filter.rounds;
   final boardRows = filter.boardRows;
+  final categories = filter.categories;
+  final difficulties = filter.difficulties;
   return json.encode({
     if (rounds != null) 'rounds': rounds.toList()..sort(),
     if (filter.from != null) 'from': isoDate(filter.from!),
     if (filter.to != null) 'to': isoDate(filter.to!),
     if (boardRows != null) 'rows': boardRows.toList()..sort(),
+    if (categories != null) 'categories': categories.toList()..sort(),
+    if (difficulties != null) 'difficulties': difficulties.toList()..sort(),
   });
 }
 
@@ -76,14 +81,16 @@ QuestionFilter decodeFilter(String saved) {
   }
   if (decoded is! Map<String, dynamic>) return QuestionFilter.any;
   DateTime? date(Object? value) => value is String ? DateTime.tryParse(value) : null;
-  Set<int>? ints(Object? value) =>
-      value is List && value.isNotEmpty && value.every((v) => v is int)
-          ? value.cast<int>().toSet()
+  Set<T>? setOf<T>(Object? value) =>
+      value is List && value.isNotEmpty && value.every((v) => v is T)
+          ? value.cast<T>().toSet()
           : null;
   return QuestionFilter(
-    rounds: ints(decoded['rounds']),
+    rounds: setOf<int>(decoded['rounds']),
     from: date(decoded['from']),
     to: date(decoded['to']),
-    boardRows: ints(decoded['rows']),
+    boardRows: setOf<int>(decoded['rows']),
+    categories: setOf<String>(decoded['categories']),
+    difficulties: setOf<String>(decoded['difficulties']),
   );
 }
