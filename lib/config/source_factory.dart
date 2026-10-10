@@ -11,12 +11,12 @@ import 'package:quizapp/model/question.dart';
 QuestionSource createQuestionSource(SourceConfig config, {ApiCredentials? credentials}) {
   switch (config.kind) {
     case SourceKind.local:
-      return LocalQuestionSource();
+      return LocalQuestionSource(dataset: config.localDataset);
     case SourceKind.api:
       return _api(config, credentials);
     case SourceKind.apiWithLocalFallback:
       return FallbackQuestionSource(primary: _api(config, credentials),
-          fallback: LocalQuestionSource());
+          fallback: LocalQuestionSource(dataset: config.localDataset));
   }
 }
 

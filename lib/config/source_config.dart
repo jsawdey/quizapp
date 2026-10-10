@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:quizapp/data/api_dialect.dart';
+import 'package:quizapp/data/clue_database.dart';
 
 /// Which backend a build reads questions from.
 enum SourceKind {
@@ -34,6 +35,8 @@ class SourceConfigError implements Exception {
 /// - `QUESTION_API_DIALECT`: which API it is; one of [apiDialects]
 /// - `QUESTION_API_TOKEN`: optional bearer token. It is compiled into the app,
 ///   so it is not a secret.
+/// - `LOCAL_DATASET`: which bundled database `local` and
+///   `api_with_local_fallback` read: `clues` (the default) or `trivia`
 ///
 /// Web builds read from the server that served the page: the source defaults
 /// to `api`, the URL to the page's origin and the dialect to `quizapp`. The
@@ -44,8 +47,10 @@ class SourceConfig {
   final Uri? apiUrl;
   final String? apiDialect;
   final String? apiToken;
+  final LocalDataset localDataset;
 
-  const SourceConfig._(this.kind, {this.apiUrl, this.apiDialect, this.apiToken});
+  const SourceConfig._(this.kind, {this.apiUrl, this.apiDialect, this.apiToken,
+    this.localDataset = LocalDataset.clues});
 
   static const local = SourceConfig._(SourceKind.local);
 
@@ -55,6 +60,7 @@ class SourceConfig {
         apiUrl: const String.fromEnvironment('QUESTION_API_URL'),
         apiDialect: const String.fromEnvironment('QUESTION_API_DIALECT'),
         apiToken: const String.fromEnvironment('QUESTION_API_TOKEN'),
+        localDataset: const String.fromEnvironment('LOCAL_DATASET'),
         allowHttp: !kReleaseMode,
         isWeb: kIsWeb,
         pageUrl: kIsWeb ? Uri.base : null,
@@ -66,8 +72,8 @@ class SourceConfig {
   /// class comment); [pageUrl] is the page's address, whose origin is the
   /// default API URL.
   factory SourceConfig.parse({String source = '', String apiUrl = '',
-      String apiDialect = '', String apiToken = '', bool allowHttp = false,
-      bool isWeb = false, Uri? pageUrl}) {
+      String apiDialect = '', String apiToken = '', String localDataset = '',
+      bool allowHttp = false, bool isWeb = false, Uri? pageUrl}) {
     final name = source.trim();
     final kind = name.isEmpty
         ? (isWeb ? SourceKind.api : SourceKind.local)
@@ -82,7 +88,15 @@ class SourceConfig {
           'database isn\'t available in the browser. Serve it with '
           'tool/serve_clues.py and use "api".');
     }
-    if (!kind.usesApi) return local;
+    final datasetName = localDataset.trim();
+    final dataset = datasetName.isEmpty
+        ? LocalDataset.clues
+        : LocalDataset.values.where((d) => d.name == datasetName).firstOrNull;
+    if (dataset == null) {
+      throw SourceConfigError('LOCAL_DATASET is "$localDataset"; it must be one of: '
+          '${LocalDataset.values.map((d) => d.name).join(', ')}.');
+    }
+    if (!kind.usesApi) return SourceConfig._(kind, localDataset: dataset);
 
     final urlText = apiUrl.trim().isEmpty && isWeb && pageUrl != null
         ? Uri(scheme: pageUrl.scheme, host: pageUrl.host,
@@ -110,6 +124,6 @@ class SourceConfig {
           'loads the page. Leave it out of web builds; the page asks for the token.');
     }
     return SourceConfig._(kind, apiUrl: url, apiDialect: dialect,
-        apiToken: token.isEmpty ? null : token);
+        apiToken: token.isEmpty ? null : token, localDataset: dataset);
   }
 }

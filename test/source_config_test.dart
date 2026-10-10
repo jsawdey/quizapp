@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:quizapp/config/source_config.dart';
 import 'package:quizapp/config/source_factory.dart';
 import 'package:quizapp/data/api_dialect.dart';
+import 'package:quizapp/data/clue_database.dart';
 import 'package:quizapp/data/fallback_question_source.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/local_question_source.dart';
@@ -41,6 +42,18 @@ void main() {
       expect(config.apiDialect, 'quizapp');
       expect(() => SourceConfig.parse(source: 'api_with_local_fallback'),
           configError('QUESTION_SOURCE is "api_with_local_fallback"'));
+    });
+
+    test('reads LOCAL_DATASET for the local database', () {
+      expect(SourceConfig.parse().localDataset, LocalDataset.clues);
+      expect(SourceConfig.parse(localDataset: 'trivia').localDataset, LocalDataset.trivia);
+      final fallback = SourceConfig.parse(source: 'api_with_local_fallback',
+          apiUrl: 'https://x.example', apiDialect: 'opentdb', localDataset: 'trivia');
+      expect(fallback.localDataset, LocalDataset.trivia);
+      expect(createQuestionSource(fallback), isA<FallbackQuestionSource>().having(
+          (s) => s.fallback, 'fallback', isA<LocalQuestionSource>()
+              .having((l) => l.dataset, 'dataset', LocalDataset.trivia)));
+      expect(() => SourceConfig.parse(localDataset: 'jokes'), configError('LOCAL_DATASET'));
     });
 
     test('rejects an unknown source', () {
