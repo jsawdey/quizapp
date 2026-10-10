@@ -256,6 +256,10 @@ class _QuizPageState extends State<QuizPage> {
 
   bool get _canFilter => widget.repository.supportedFilters.isNotEmpty;
 
+  /// What the filters narrow: Jeopardy clues, or general trivia questions.
+  String get _filtered =>
+      widget.repository.supportedFilters.contains(FilterKind.round) ? 'clues' : 'questions';
+
   /// How many choices have a number key.
   static const _pickKeys = 4;
 
@@ -421,10 +425,7 @@ class _QuizPageState extends State<QuizPage> {
     final filter = widget.repository.filter;
     return IconButton(
       icon: Icon(filter.isAny ? Icons.filter_alt_outlined : Icons.filter_alt),
-      tooltip: filter.isAny
-          ? (widget.repository.supportedFilters.contains(FilterKind.round)
-              ? 'Filter clues' : 'Filter questions')
-          : 'Filters: ${describeFilter(filter)}',
+      tooltip: filter.isAny ? 'Filter $_filtered' : 'Filters: ${describeFilter(filter)}',
       // A question loading now would be for the old filter.
       onPressed: _loading ? null : _openFilters,
     );
@@ -534,7 +535,7 @@ class _QuizPageState extends State<QuizPage> {
         onPressed: _loading ? null : _loadQuestion,
         tooltip: _hasKeyboard
             ? 'Load Random Question (N). Space shows the response; H hides the question'
-                '${_canFilter ? '; F filters clues' : ''}'
+                '${_canFilter ? '; F filters $_filtered' : ''}'
                 '${_current?.choices != null ? '; 1–4 pick a choice' : ''}.'
             : 'Load Random Question',
         child: const Icon(Icons.refresh),
