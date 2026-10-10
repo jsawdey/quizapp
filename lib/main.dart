@@ -6,10 +6,18 @@ import 'package:quizapp/data/filter_store.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/token_store.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'quiz_page.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // sqflite only runs on Android, iOS and macOS; desktop builds use SQLite
+  // through FFI instead.
+  if (!kIsWeb && const {TargetPlatform.linux, TargetPlatform.windows}
+      .contains(defaultTargetPlatform)) {
+    sqfliteFfiInit();
+    databaseFactory = databaseFactoryFfi;
+  }
   // Web builds ask for the API's access token rather than compiling it in.
   final credentials = kIsWeb ? ApiCredentials() : null;
   // The build's own source, or the one last chosen in the app.
