@@ -16,12 +16,12 @@ abstract class ApiDialect {
 
   /// Parses a random-questions response. Items that don't parse are skipped;
   /// a response that isn't the expected shape at all throws [FormatException].
-  List<JeopardyQuestion> parseRandom(Object? json, Uri base);
+  List<Question> parseRandom(Object? json, Uri base);
 
   bool get supportsReport => false;
 
   /// The URL to POST a report to. Only called when [supportsReport] is true.
-  Uri reportUri(Uri base, JeopardyQuestion question) =>
+  Uri reportUri(Uri base, Question question) =>
       throw UnsupportedError('$name has no reporting');
 
   /// Resolves [path] below [base], keeping any path prefix the base has
@@ -70,7 +70,7 @@ class QuizApiDialect extends ApiDialect {
   }
 
   @override
-  List<JeopardyQuestion> parseRandom(Object? json, Uri base) {
+  List<Question> parseRandom(Object? json, Uri base) {
     const shapeError = FormatException('Expected an object with a "questions" list');
     if (json is! Map<String, dynamic>) throw shapeError;
     final questions = json['questions'];
@@ -79,7 +79,7 @@ class QuizApiDialect extends ApiDialect {
     final sourceId = namespace is String && namespace.isNotEmpty
         ? namespace
         : 'quizapp:${base.host}';
-    final parsed = <JeopardyQuestion>[];
+    final parsed = <Question>[];
     for (final item in questions) {
       final question = _parse(item, sourceId);
       if (question != null) parsed.add(question);
@@ -87,7 +87,7 @@ class QuizApiDialect extends ApiDialect {
     return parsed;
   }
 
-  static JeopardyQuestion? _parse(Object? item, String sourceId) {
+  static Question? _parse(Object? item, String sourceId) {
     if (item is! Map<String, dynamic>) return null;
     final key = item['key'];
     final clue = item['clue'];
@@ -97,19 +97,19 @@ class QuizApiDialect extends ApiDialect {
         category is! String) {
       return null;
     }
-    final clueText = JeopardyQuestion.sanitize(clue).trim();
-    final responseText = JeopardyQuestion.sanitize(response).trim();
+    final clueText = Question.sanitize(clue).trim();
+    final responseText = Question.sanitize(response).trim();
     if ('$key'.isEmpty || clueText.isEmpty || responseText.isEmpty) return null;
     final round = _int(item['round']);
     final value = _int(item['value']);
     final wager = _int(item['dd_wager']);
     final airDate = item['air_date'];
-    return JeopardyQuestion(
+    return Question(
       sourceId: sourceId,
       key: '$key',
       question: clueText,
       answer: responseText,
-      category: JeopardyQuestion.sanitize(category).trim(),
+      category: Question.sanitize(category).trim(),
       // Final Jeopardy clues have value 0.
       value: round == 3 ? null : value,
       round: round,
@@ -130,7 +130,7 @@ class QuizApiDialect extends ApiDialect {
   bool get supportsReport => true;
 
   @override
-  Uri reportUri(Uri base, JeopardyQuestion question) =>
+  Uri reportUri(Uri base, Question question) =>
       ApiDialect.endpoint(base, 'v1/questions/${Uri.encodeComponent(question.key)}/report');
 }
 
@@ -151,12 +151,12 @@ class JServiceDialect extends ApiDialect {
           {'count': count.clamp(1, maxCount).toString()});
 
   @override
-  List<JeopardyQuestion> parseRandom(Object? json, Uri base) {
+  List<Question> parseRandom(Object? json, Uri base) {
     if (json is! List) {
       throw const FormatException('Expected a JSON list of clues');
     }
     final sourceId = 'jservice:${base.host}';
-    final questions = <JeopardyQuestion>[];
+    final questions = <Question>[];
     for (final item in json) {
       final question = _parse(item, sourceId);
       if (question != null) questions.add(question);
@@ -166,7 +166,7 @@ class JServiceDialect extends ApiDialect {
 
   // Returns null for malformed clues and for clues jService users have
   // flagged as invalid.
-  static JeopardyQuestion? _parse(Object? item, String sourceId) {
+  static Question? _parse(Object? item, String sourceId) {
     if (item is! Map<String, dynamic>) return null;
     final id = item['id'];
     final question = item['question'];
@@ -178,17 +178,17 @@ class JServiceDialect extends ApiDialect {
     }
     final invalidCount = int.tryParse('${item['invalid_count'] ?? 0}') ?? 0;
     if (invalidCount != 0) return null;
-    final clue = JeopardyQuestion.sanitize(question).trim();
-    final response = JeopardyQuestion.sanitize(answer).trim();
+    final clue = Question.sanitize(question).trim();
+    final response = Question.sanitize(answer).trim();
     if (clue.isEmpty || response.isEmpty) return null;
     final value = item['value'];
     final airdate = item['airdate'];
-    return JeopardyQuestion(
+    return Question(
       sourceId: sourceId,
       key: id.toString(),
       question: clue,
       answer: response,
-      category: JeopardyQuestion.sanitize(title).trim(),
+      category: Question.sanitize(title).trim(),
       value: value is int ? value : null,
       airDate: airdate is String ? DateTime.tryParse(airdate) : null,
       raw: item,
@@ -199,6 +199,6 @@ class JServiceDialect extends ApiDialect {
   bool get supportsReport => true;
 
   @override
-  Uri reportUri(Uri base, JeopardyQuestion question) =>
+  Uri reportUri(Uri base, Question question) =>
       ApiDialect.endpoint(base, 'api/invalid', {'id': question.key});
 }

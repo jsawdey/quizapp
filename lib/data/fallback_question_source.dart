@@ -50,7 +50,7 @@ class FallbackQuestionSource extends QuestionSource {
   Future<void> open() async {}
 
   @override
-  Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
+  Future<Question> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
     final SourceUnavailable primaryError;
     try {
       if (_primaryFailedAt != null &&
@@ -91,16 +91,16 @@ class FallbackQuestionSource extends QuestionSource {
     }
   }
 
-  QuestionSource _servedBy(JeopardyQuestion question) =>
+  QuestionSource _servedBy(Question question) =>
       _fromFallback[question] == true ? fallback : primary;
 
   /// Whether the source that served [question] can report it.
   @override
-  bool canReport(JeopardyQuestion question) => _servedBy(question).canReport(question);
+  bool canReport(Question question) => _servedBy(question).canReport(question);
 
   /// Reports to whichever source served [question], if it can.
   @override
-  Future<void> reportRemote(JeopardyQuestion question) async {
+  Future<void> reportRemote(Question question) async {
     final source = _servedBy(question);
     if (source.canReport(question)) await source.reportRemote(question);
   }

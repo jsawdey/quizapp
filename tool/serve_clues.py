@@ -59,7 +59,7 @@ ATTEMPTS_PER_CLUE = 5
 
 # The day clue values doubled. A clue's board row (1 top to 5 bottom) is its
 # value over its round's top-row value, which doubled then; as
-# JeopardyQuestion.boardRow in the app.
+# Question.boardRow in the app.
 VALUES_DOUBLED_ON = '2001-11-26'
 ROW_BASE = ('(CASE c.round WHEN 1 THEN 100 ELSE 200 END '
             '* CASE WHEN g.air_date >= ? THEN 2 ELSE 1 END)')

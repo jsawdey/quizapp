@@ -20,7 +20,7 @@ class LocalQuestionSource extends QuestionSource {
     JOIN games g ON g.id = c.game_id''';
 
   /// The round's value for the top row of the board, as in
-  /// [JeopardyQuestion.boardRow]; the `?` is the day values doubled.
+  /// [Question.boardRow]; the `?` is the day values doubled.
   static const _rowBase = '(CASE c.round WHEN 1 THEN 100 ELSE 200 END '
       '* CASE WHEN g.air_date >= ? THEN 2 ELSE 1 END)';
 
@@ -66,7 +66,7 @@ class LocalQuestionSource extends QuestionSource {
   /// the range is equally likely; with one, clues that follow a long run of
   /// non-matching ones are a little more likely.
   @override
-  Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
+  Future<Question> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
     final db = _db;
     if (db == null) throw StateError('LocalQuestionSource is not open');
     if (_maxId == 0) throw const NoQuestionFound('The clue database is empty.');
@@ -101,7 +101,7 @@ class LocalQuestionSource extends QuestionSource {
         final rows = List.filled(boardRows.length, '?').join(', ');
         where.add('(c.round = 3 OR '
             '(c.value % $_rowBase = 0 AND c.value / $_rowBase IN ($rows)))');
-        final doubledOn = isoDate(JeopardyQuestion.valuesDoubledOn);
+        final doubledOn = isoDate(Question.valuesDoubledOn);
         args.addAll([doubledOn, doubledOn, ...boardRows]);
       }
     }
@@ -149,11 +149,11 @@ class LocalQuestionSource extends QuestionSource {
     return low;
   }
 
-  JeopardyQuestion _fromRow(Map<String, Object?> row) {
+  Question _fromRow(Map<String, Object?> row) {
     final round = row['round'] as int;
     final value = row['value'] as int;
     final wager = row['dd_wager'] as int;
-    return JeopardyQuestion(
+    return Question(
       sourceId: _namespace,
       key: '${row['clue_key']}',
       question: row['clue'] as String,

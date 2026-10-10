@@ -8,9 +8,9 @@ import 'package:quizapp/model/question.dart';
 import 'support/fakes.dart';
 
 void main() {
-  group('JeopardyQuestion', () {
+  group('Question', () {
     test('sanitize strips italics tags and backslashes', () {
-      expect(JeopardyQuestion.sanitize(r'<i>Moby-Dick</i> by \"Melville\"'),
+      expect(Question.sanitize(r'<i>Moby-Dick</i> by \"Melville\"'),
           'Moby-Dick by "Melville"');
     });
 

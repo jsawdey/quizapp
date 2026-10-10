@@ -2,10 +2,10 @@ import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
 import 'package:quizapp/model/question.dart';
 
-JeopardyQuestion fakeQuestion(String key, {String sourceId = 'fake',
+Question fakeQuestion(String key, {String sourceId = 'fake',
     int? round, DateTime? airDate, int? value = 200, int? dailyDoubleWager,
     String? category, String? categoryComment}) =>
-    JeopardyQuestion(sourceId: sourceId, key: key, question: 'Clue $key',
+    Question(sourceId: sourceId, key: key, question: 'Clue $key',
         answer: 'Response $key', category: category ?? 'Category $key',
         value: value, round: round, airDate: airDate,
         dailyDoubleWager: dailyDoubleWager, categoryComment: categoryComment,
@@ -13,7 +13,7 @@ JeopardyQuestion fakeQuestion(String key, {String sourceId = 'fake',
 
 /// Serves [questions] in order, round and round, or throws [error] if set.
 class FakeQuestionSource extends QuestionSource {
-  final List<JeopardyQuestion> questions;
+  final List<Question> questions;
   Object? error;
   Object? openError;
   @override
@@ -31,7 +31,7 @@ class FakeQuestionSource extends QuestionSource {
   int _next = 0;
   int opens = 0;
   int closes = 0;
-  final List<JeopardyQuestion> reported = [];
+  final List<Question> reported = [];
 
   FakeQuestionSource(this.questions, {this.supportsRemoteReport = false,
     this.supportedFilters = const {}});
@@ -47,7 +47,7 @@ class FakeQuestionSource extends QuestionSource {
   }
 
   @override
-  Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
+  Future<Question> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
     lastFilter = filter;
     final gate = this.gate;
     if (gate != null) await gate;
@@ -58,7 +58,7 @@ class FakeQuestionSource extends QuestionSource {
   }
 
   @override
-  Future<void> reportRemote(JeopardyQuestion question) async {
+  Future<void> reportRemote(Question question) async {
     reported.add(question);
     final e = reportError;
     if (e != null) throw e;
@@ -79,7 +79,7 @@ class TokenGuardedSource extends FakeQuestionSource {
     super.supportedFilters});
 
   @override
-  Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
+  Future<Question> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
     requests++;
     final sent = credentials.token;
     if (sent != token) {

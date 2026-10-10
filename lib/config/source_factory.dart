@@ -50,6 +50,6 @@ class UnavailableQuestionSource extends QuestionSource {
   Future<void> open() async => throw SourceUnavailable(reason);
 
   @override
-  Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async =>
+  Future<Question> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async =>
       throw SourceUnavailable(reason);
 }

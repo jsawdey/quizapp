@@ -125,7 +125,7 @@ void main() {
     final db = await databaseFactoryFfi.openDatabase(file.absolute.path,
         options: OpenDatabaseOptions(readOnly: true, singleInstance: false));
     addTearDown(db.close);
-    // Clue values doubled on 2001-11-26; see JeopardyQuestion.boardRow.
+    // Clue values doubled on 2001-11-26; see Question.boardRow.
     final misfits = await db.rawQuery('''
         SELECT COUNT(*) AS n FROM (
           SELECT c.value, CASE c.round WHEN 1 THEN 100 ELSE 200 END

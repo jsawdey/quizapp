@@ -31,7 +31,7 @@ class HttpQuestionSource extends QuestionSource {
   final http.Client _client;
   final bool _ownsClient;
 
-  final Queue<JeopardyQuestion> _buffer = Queue();
+  final Queue<Question> _buffer = Queue();
   QuestionFilter _bufferFilter = QuestionFilter.any;
   Future<void>? _refill;
   QuestionFilter? _refillFilter;
@@ -64,7 +64,7 @@ class HttpQuestionSource extends QuestionSource {
   }
 
   @override
-  Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
+  Future<Question> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
     if (filter != _bufferFilter) {
       _buffer.clear();
       _bufferFilter = filter;
@@ -103,7 +103,7 @@ class HttpQuestionSource extends QuestionSource {
   Future<int> _fetchBatch(QuestionFilter filter) async {
     final uri = dialect.randomUri(baseUrl, batchSize, filter);
     final body = await _send(() => _client.get(uri, headers: _headers));
-    final List<JeopardyQuestion> questions;
+    final List<Question> questions;
     try {
       questions = dialect.parseRandom(json.decode(body), baseUrl);
     } on FormatException catch (e) {
@@ -116,7 +116,7 @@ class HttpQuestionSource extends QuestionSource {
   }
 
   @override
-  Future<void> reportRemote(JeopardyQuestion question) async {
+  Future<void> reportRemote(Question question) async {
     if (!dialect.supportsReport) return;
     final uri = dialect.reportUri(baseUrl, question);
     await _send(() => _client.post(uri, headers: _headers));

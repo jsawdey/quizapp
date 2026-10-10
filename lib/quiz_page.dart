@@ -59,7 +59,7 @@ class QuizPage extends StatefulWidget {
 }
 
 class _QuizPageState extends State<QuizPage> {
-  JeopardyQuestion? _current;
+  Question? _current;
   bool _loading = false;
   String? _error;
   bool _showAnswer = false;
@@ -265,7 +265,7 @@ class _QuizPageState extends State<QuizPage> {
   /// The line under the category: the clue's value, or which round it is.
   /// Daily Doubles play as regular clues, so they show their board value;
   /// the wager is still in the raw data.
-  static String? _detailFor(JeopardyQuestion question) {
+  static String? _detailFor(Question question) {
     if (question.isFinalJeopardy) return 'FINAL JEOPARDY';
     final value = question.value;
     return value == null || value == 0 ? null : _dollars.format(value);

@@ -192,7 +192,7 @@ void main() {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
-    source = FakeQuestionSource([JeopardyQuestion(sourceId: 'fake', key: '1',
+    source = FakeQuestionSource([Question(sourceId: 'fake', key: '1',
         question: 'A clue that keeps going and going ' * 8, answer: 'yes',
         category: 'LONG CLUES')]);
     await pumpApp(tester);

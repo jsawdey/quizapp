@@ -138,7 +138,7 @@ class ServeCluesTest(ServerTestCase):
         self.assertEqual(len(store.random(50, date_to='2000-12-31')), 10)
 
     def test_board_rows_match_the_shared_examples(self):
-        # The same examples check the app's JeopardyQuestion.boardRow and
+        # The same examples check the app's Question.boardRow and
         # LocalQuestionSource. Final Jeopardy has no row and always passes.
         examples = json.loads((Path(__file__).resolve().parent.parent / 'test' / 'support'
                                / 'board_rows.json').read_text(encoding='utf-8'))

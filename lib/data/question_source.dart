@@ -22,7 +22,7 @@ class QuestionFilter {
   final DateTime? from;
   final DateTime? to;
 
-  /// Rows on the board, 1 (top) to 5 (bottom); see [JeopardyQuestion.boardRow].
+  /// Rows on the board, 1 (top) to 5 (bottom); see [Question.boardRow].
   /// Only narrows Jeopardy! and Double Jeopardy! clues: Final Jeopardy! has
   /// no row, and passes whenever its round does.
   final Set<int>? boardRows;
@@ -56,7 +56,7 @@ class QuestionFilter {
       to: kinds.contains(FilterKind.airDate) ? to : null,
       boardRows: kinds.contains(FilterKind.boardRow) ? boardRows : null);
 
-  bool matches(JeopardyQuestion q) {
+  bool matches(Question q) {
     final rounds = this.rounds;
     if (rounds != null && !rounds.contains(q.round)) return false;
     final airDate = q.airDate;
@@ -124,17 +124,17 @@ abstract class QuestionSource {
   Set<FilterKind> get supportedFilters => const {};
 
   /// Whether hiding [question] reports it to the backend too.
-  bool canReport(JeopardyQuestion question) => supportsRemoteReport;
+  bool canReport(Question question) => supportsRemoteReport;
 
   /// Prepares the source. May throw [SourceUnavailable].
   Future<void> open() async {}
 
   /// Throws [SourceUnavailable] or [NoQuestionFound].
-  Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any});
+  Future<Question> randomQuestion({QuestionFilter filter = QuestionFilter.any});
 
   /// Tells the backend a question is bad. Only called when [canReport] is
   /// true for it.
-  Future<void> reportRemote(JeopardyQuestion question) async {}
+  Future<void> reportRemote(Question question) async {}
 
   Future<void> close() async {}
 }

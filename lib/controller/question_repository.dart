@@ -85,7 +85,7 @@ class QuestionRepository {
 
   /// Throws [SourceUnavailable] or [NoQuestionFound]. Uses [filter] if
   /// given, else [QuestionRepository.filter].
-  Future<JeopardyQuestion> next({QuestionFilter? filter}) async {
+  Future<Question> next({QuestionFilter? filter}) async {
     await open();
     final using = filter ?? _filter;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
@@ -112,7 +112,7 @@ class QuestionRepository {
   }
 
   /// Whether hiding [question] also reports it to the source.
-  bool canReport(JeopardyQuestion question) => source.canReport(question);
+  bool canReport(Question question) => source.canReport(question);
 
   /// Where reports go, for the hide dialog.
   String get reportTarget => source.description;
@@ -126,7 +126,7 @@ class QuestionRepository {
 
   /// Hides [question] on this device, then reports it to the source if it can
   /// be. A failed report is only logged: hiding still works offline.
-  Future<void> hide(JeopardyQuestion question) async {
+  Future<void> hide(Question question) async {
     await open();
     await hiddenStore.hide(question);
     if (source.canReport(question)) {

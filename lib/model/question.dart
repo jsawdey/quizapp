@@ -4,7 +4,7 @@ import 'package:intl/intl.dart';
 ///
 /// Each [QuestionSource] parses its own data into this; the app's naming is
 /// kept, so [question] is the clue text and [answer] is the correct response.
-class JeopardyQuestion {
+class Question {
   /// Namespace for [key], e.g. `jwolle1` or `jservice:jservice.io`.
   final String sourceId;
 
@@ -26,7 +26,7 @@ class JeopardyQuestion {
   /// The source's raw record, shown as-is by the info overlay.
   final Map<String, dynamic> raw;
 
-  JeopardyQuestion({required this.sourceId, required this.key,
+  Question({required this.sourceId, required this.key,
     required this.question, required this.answer, required this.category,
     this.value, this.round, this.airDate, this.dailyDoubleWager,
     this.categoryComment, this.notes, this.raw = const {}});
