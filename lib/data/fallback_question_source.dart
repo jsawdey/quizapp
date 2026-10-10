@@ -37,11 +37,28 @@ class FallbackQuestionSource extends QuestionSource {
   bool get supportsRemoteReport =>
       primary.supportsRemoteReport || fallback.supportsRemoteReport;
 
+  /// The credit for whichever source served the last question.
+  @override
+  String? get attribution => _usingFallback ? fallback.attribution : primary.attribution;
+
   /// Only filters both sources apply: one that worked on the primary and
   /// then failed on the fallback would look like a bug.
   @override
   Set<FilterKind> get supportedFilters =>
       primary.supportedFilters.intersection(fallback.supportedFilters);
+
+  /// The categories both sources offer, in the primary's order: as with
+  /// [supportedFilters], a filter must work on either. Asks only the sources
+  /// already open, since asking opens nothing.
+  @override
+  Future<List<String>> filterCategories() async {
+    final primaryCategories = _primaryOpen ? await primary.filterCategories() : null;
+    final fallbackCategories = _fallbackOpen ? await fallback.filterCategories() : null;
+    if (primaryCategories == null) return fallbackCategories ?? const [];
+    if (fallbackCategories == null) return primaryCategories;
+    final shared = fallbackCategories.toSet();
+    return [for (final name in primaryCategories) if (shared.contains(name)) name];
+  }
 
   /// Opens nothing up front: each source is opened the first time it's
   /// needed, so a build without a fallback database works while the primary
@@ -50,7 +67,7 @@ class FallbackQuestionSource extends QuestionSource {
   Future<void> open() async {}
 
   @override
-  Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
+  Future<Question> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
     final SourceUnavailable primaryError;
     try {
       if (_primaryFailedAt != null &&
@@ -91,16 +108,16 @@ class FallbackQuestionSource extends QuestionSource {
     }
   }
 
-  QuestionSource _servedBy(JeopardyQuestion question) =>
+  QuestionSource _servedBy(Question question) =>
       _fromFallback[question] == true ? fallback : primary;
 
   /// Whether the source that served [question] can report it.
   @override
-  bool canReport(JeopardyQuestion question) => _servedBy(question).canReport(question);
+  bool canReport(Question question) => _servedBy(question).canReport(question);
 
   /// Reports to whichever source served [question], if it can.
   @override
-  Future<void> reportRemote(JeopardyQuestion question) async {
+  Future<void> reportRemote(Question question) async {
     final source = _servedBy(question);
     if (source.canReport(question)) await source.reportRemote(question);
   }

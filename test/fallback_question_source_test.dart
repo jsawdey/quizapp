@@ -28,6 +28,17 @@ void main() {
     expect(fallback.opens, 0);
   });
 
+  test('credits whichever source served the last question', () async {
+    primary = FakeQuestionSource([fakeQuestion('p')], attribution: 'Primary credit');
+    fallback = FakeQuestionSource([fakeQuestion('f')]);
+    source = FallbackQuestionSource(primary: primary, fallback: fallback);
+    await source.randomQuestion();
+    expect(source.attribution, 'Primary credit');
+    primary.error = const SourceUnavailable('offline');
+    await source.randomQuestion();
+    expect(source.attribution, isNull);
+  });
+
   test('switches to the fallback when the primary is unavailable', () async {
     primary.error = const SourceUnavailable('offline');
     expect((await source.randomQuestion()).key, 'f');

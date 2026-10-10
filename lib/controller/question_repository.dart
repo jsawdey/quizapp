@@ -10,12 +10,13 @@ import 'package:quizapp/model/question.dart';
 
 /// What the UI talks to. Forwards to a [QuestionSource] and handles what is
 /// the same for every source: skipping hidden questions and hiding them.
+/// The source can be swapped while the app runs; see [switchSource].
 class QuestionRepository {
   /// How many random questions to try before giving up because they were all
   /// hidden.
   static const maxAttempts = 20;
 
-  final QuestionSource source;
+  QuestionSource _source;
   final HiddenQuestionStore hiddenStore;
 
   /// Where an access token entered in the app is kept, and the credentials the
@@ -28,16 +29,24 @@ class QuestionRepository {
   final FilterStore? filterStore;
   QuestionFilter _filter = QuestionFilter.any;
   bool _filterChosen = false;
-  Future<void>? _opening;
+  Future<void>? _storesOpening;
+  Future<void>? _sourceOpening;
 
-  QuestionRepository({required this.source, required this.hiddenStore,
-    this.tokenStore, this.credentials, this.filterStore});
+  QuestionRepository({required QuestionSource source, required this.hiddenStore,
+    this.tokenStore, this.credentials, this.filterStore})
+      : _source = source;
 
-  /// Opens the source and the hidden-question store. Safe to call more than
-  /// once; a failed open is retried on the next call.
-  Future<void> open() => _opening ??= _open();
+  /// Where questions come from now.
+  QuestionSource get source => _source;
 
-  Future<void> _open() async {
+  /// Opens the stores, then the source. Safe to call more than once; a
+  /// failed open is retried on the next call.
+  Future<void> open() async {
+    await (_storesOpening ??= _openStores());
+    await (_sourceOpening ??= _openSource(_source));
+  }
+
+  Future<void> _openStores() async {
     try {
       final tokenStore = this.tokenStore;
       final credentials = this.credentials;
@@ -45,10 +54,35 @@ class QuestionRepository {
         credentials.token = await tokenStore.read() ?? credentials.token;
       }
       await _readFilter();
-      await Future.wait([source.open(), hiddenStore.open()]);
+      await hiddenStore.open();
     } catch (_) {
-      _opening = null;
+      _storesOpening = null;
       rethrow;
+    }
+  }
+
+  Future<void> _openSource(QuestionSource source) async {
+    try {
+      await source.open();
+    } catch (_) {
+      // Unless the source has been switched since.
+      if (identical(source, _source)) _sourceOpening = null;
+      rethrow;
+    }
+  }
+
+  /// Reads from [source] from now on, and closes the old one. Hidden
+  /// questions and the token carry over, and the filter applies as far as
+  /// [source] supports it.
+  Future<void> switchSource(QuestionSource source) async {
+    final old = _source;
+    if (identical(old, source)) return;
+    _source = source;
+    _sourceOpening = null;
+    try {
+      await old.close();
+    } catch (e) {
+      debugPrint('Could not close ${old.description}: $e');
     }
   }
 
@@ -59,7 +93,8 @@ class QuestionRepository {
     if (filterStore == null || _filterChosen) return;
     try {
       final saved = await filterStore.read();
-      if (!_filterChosen) _filter = _usable(saved);
+      // Kept whole: [filter] drops what the source can't apply each time.
+      if (!_filterChosen) _filter = saved.normalized();
     } catch (error) {
       debugPrint('Could not read the saved filter: $error');
     }
@@ -68,12 +103,19 @@ class QuestionRepository {
   QuestionFilter _usable(QuestionFilter filter) =>
       filter.normalized().limitedTo(source.supportedFilters);
 
-  /// The filters the source can apply; the app offers only these.
+  /// The filters the source can apply; the app offers only these. A
+  /// `quizapp` API only says which it supports once it's open.
   Set<FilterKind> get supportedFilters => source.supportedFilters;
 
+  /// The category names the source offers for [QuestionFilter.categories].
+  Future<List<String>> filterCategories() async {
+    await open();
+    return source.filterCategories();
+  }
+
   /// The filter [next] applies: the one last chosen, or the saved one once
-  /// the repository is open, without anything the source can't apply.
-  QuestionFilter get filter => _filter;
+  /// the repository is open, without anything the source can't apply now.
+  QuestionFilter get filter => _usable(_filter);
 
   /// Uses [filter] from the next question on, and saves it. A failed save is
   /// thrown, but the filter still applies until the app closes.
@@ -85,9 +127,9 @@ class QuestionRepository {
 
   /// Throws [SourceUnavailable] or [NoQuestionFound]. Uses [filter] if
   /// given, else [QuestionRepository.filter].
-  Future<JeopardyQuestion> next({QuestionFilter? filter}) async {
+  Future<Question> next({QuestionFilter? filter}) async {
     await open();
-    final using = filter ?? _filter;
+    final using = filter ?? this.filter;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
       final question = await source.randomQuestion(filter: using);
       if (!hiddenStore.isHidden(question)) return question;
@@ -112,10 +154,14 @@ class QuestionRepository {
   }
 
   /// Whether hiding [question] also reports it to the source.
-  bool canReport(JeopardyQuestion question) => source.canReport(question);
+  bool canReport(Question question) => source.canReport(question);
 
   /// Where reports go, for the hide dialog.
   String get reportTarget => source.description;
+
+  /// The credit the current questions' license asks for; see
+  /// [QuestionSource.attribution].
+  String? get attribution => source.attribution;
 
   /// Whether questions are coming from the fallback source because the main
   /// one is unavailable.
@@ -126,7 +172,7 @@ class QuestionRepository {
 
   /// Hides [question] on this device, then reports it to the source if it can
   /// be. A failed report is only logged: hiding still works offline.
-  Future<void> hide(JeopardyQuestion question) async {
+  Future<void> hide(Question question) async {
     await open();
     await hiddenStore.hide(question);
     if (source.canReport(question)) {
@@ -138,6 +184,7 @@ class QuestionRepository {
 
   Future<void> close() async {
     await Future.wait([source.close(), hiddenStore.close()]);
-    _opening = null;
+    _storesOpening = null;
+    _sourceOpening = null;
   }
 }

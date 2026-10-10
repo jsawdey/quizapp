@@ -1,0 +1,30 @@
+{
+  "captured_at": "2026-10-10",
+  "base": "https://the-trivia-api.com",
+  "files": {
+    "categories.json": {
+      "url": "https://the-trivia-api.com/v2/categories",
+      "status": 200
+    },
+    "questions.json": {
+      "url": "https://the-trivia-api.com/v2/questions?limit=50",
+      "status": 200
+    },
+    "questions_filtered.json": {
+      "url": "https://the-trivia-api.com/v2/questions?limit=20&categories=geography%2Cmusic&difficulties=hard",
+      "status": 200
+    },
+    "questions_small_pool.json": {
+      "url": "https://the-trivia-api.com/v2/questions?limit=50&categories=general_knowledge&difficulties=easy",
+      "status": 200
+    },
+    "questions_unknown_category.json": {
+      "url": "https://the-trivia-api.com/v2/questions?limit=5&categories=knitting",
+      "status": 200
+    },
+    "bad_difficulty.txt": {
+      "url": "https://the-trivia-api.com/v2/questions?limit=5&difficulties=impossible",
+      "status": 400
+    }
+  }
+}

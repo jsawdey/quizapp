@@ -1,0 +1,60 @@
+{
+  "captured_at": "2026-10-10",
+  "base": "https://opentdb.com",
+  "token_placeholder": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "files": {
+    "categories.json": {
+      "url": "https://opentdb.com/api_category.php",
+      "status": 200
+    },
+    "count_small_pool.json": {
+      "url": "https://opentdb.com/api_count.php?category=13",
+      "status": 200
+    },
+    "token_request.json": {
+      "url": "https://opentdb.com/api_token.php?command=request",
+      "status": 200,
+      "response_code": 0
+    },
+    "random_small_pool.json": {
+      "url": "https://opentdb.com/api.php?amount=11&encode=url3986&token=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef&category=13&difficulty=hard",
+      "status": 200,
+      "response_code": 0
+    },
+    "code4_token_empty.json": {
+      "url": "https://opentdb.com/api.php?amount=1&encode=url3986&token=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef&category=13&difficulty=hard",
+      "status": 200,
+      "response_code": 4
+    },
+    "token_reset.json": {
+      "url": "https://opentdb.com/api_token.php?command=reset&token=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "status": 200,
+      "response_code": 0
+    },
+    "random.json": {
+      "url": "https://opentdb.com/api.php?amount=50&encode=url3986&token=0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "status": 200,
+      "response_code": 0
+    },
+    "code1_no_results.json": {
+      "url": "https://opentdb.com/api.php?amount=12&encode=url3986&category=13&difficulty=hard",
+      "status": 200,
+      "response_code": 1
+    },
+    "code2_invalid_parameter.json": {
+      "url": "https://opentdb.com/api.php?amount=0&encode=url3986",
+      "status": 200,
+      "response_code": 2
+    },
+    "code3_token_not_found.json": {
+      "url": "https://opentdb.com/api.php?amount=1&encode=url3986&token=0000000000000000000000000000000000000000000000000000000000000000",
+      "status": 200,
+      "response_code": 3
+    },
+    "code5_rate_limit.json": {
+      "url": "https://opentdb.com/api.php?amount=1&encode=url3986",
+      "status": 429,
+      "response_code": 5
+    }
+  }
+}

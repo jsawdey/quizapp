@@ -10,6 +10,7 @@ import 'package:quizapp/data/question_source.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/clue_db_fixture.dart';
+import 'support/trivia_db_fixture.dart';
 
 class FakeBundle extends CachingAssetBundle {
   final Map<String, Uint8List> assets = {};
@@ -49,8 +50,8 @@ void main() {
   }
 
   void bundleDb(Uint8List bytes, String version) {
-    bundle.assets[ClueDatabase.assetPath] = bytes;
-    bundle.assets[ClueDatabase.versionAssetPath] = utf8.encode(version);
+    bundle.assets[LocalDataset.clues.assetPath] = bytes;
+    bundle.assets[LocalDataset.clues.versionAssetPath] = utf8.encode(version);
   }
 
   ClueDatabase clueDatabase() => ClueDatabase(bundle: bundle,
@@ -69,7 +70,7 @@ void main() {
     bundleDb(await dbBytes('a.db'), '{"built_at": "1"}');
     expect(await clueCount(), 6);
     expect(await clueCount(), 6);
-    expect(bundle.loads[ClueDatabase.assetPath], 1);
+    expect(bundle.loads[LocalDataset.clues.assetPath], 1);
     expect(File(p.join(installDir, 'clues.version')).readAsStringSync(), '{"built_at": "1"}');
     expect(File(p.join(installDir, 'clues.db.part')).existsSync(), isFalse);
 
@@ -83,7 +84,7 @@ void main() {
     expect(await clueCount(), 6);
     bundleDb(await dbBytes('b.db', clues: fixtureClues.take(2).toList()), '{"built_at": "2"}');
     expect(await clueCount(), 2);
-    expect(bundle.loads[ClueDatabase.assetPath], 2);
+    expect(bundle.loads[LocalDataset.clues.assetPath], 2);
   });
 
   test('copies again after an interrupted install', () async {
@@ -93,14 +94,14 @@ void main() {
     // the version file.
     File(p.join(installDir, 'clues.version')).deleteSync();
     expect(await clueCount(), 6);
-    expect(bundle.loads[ClueDatabase.assetPath], 2);
+    expect(bundle.loads[LocalDataset.clues.assetPath], 2);
   });
 
   test('no bundled database is SourceUnavailable with build instructions', () async {
     await expectLater(clueDatabase().open(), throwsA(isA<SourceUnavailable>()
         .having((e) => e.message, 'message', contains('tool/build_clue_db.py'))));
 
-    bundle.assets[ClueDatabase.versionAssetPath] = utf8.encode('{}');
+    bundle.assets[LocalDataset.clues.versionAssetPath] = utf8.encode('{}');
     await expectLater(clueDatabase().open(), throwsA(isA<SourceUnavailable>()
         .having((e) => e.message, 'message', contains('tool/build_clue_db.py'))));
   });
@@ -109,6 +110,47 @@ void main() {
     bundleDb(await dbBytes('a.db', schemaVersion: 2), '{}');
     await expectLater(clueDatabase().open(), throwsA(isA<SourceUnavailable>()
         .having((e) => e.message, 'message', contains('schema version 2'))));
+  });
+
+  group('trivia', () {
+    Future<Uint8List> triviaBytes(String name, {String kind = 'trivia'}) async {
+      final path = p.join(tmp.path, name);
+      final db = await createTriviaDb(path: path, kind: kind);
+      await db.close();
+      return File(path).readAsBytes();
+    }
+
+    ClueDatabase triviaDatabase() => ClueDatabase(dataset: LocalDataset.trivia,
+        bundle: bundle, directory: () async => installDir, databaseFactory: databaseFactoryFfi);
+
+    test('installs trivia.db beside clues.db', () async {
+      bundleDb(await dbBytes('a.db'), '{"built_at": "1"}');
+      bundle.assets[LocalDataset.trivia.assetPath] = await triviaBytes('t.db');
+      bundle.assets[LocalDataset.trivia.versionAssetPath] = utf8.encode('{"t": 1}');
+      final db = await triviaDatabase().open();
+      expect((await db.rawQuery('SELECT COUNT(*) AS n FROM questions')).first['n'], 5);
+      await db.close();
+      expect(await clueCount(), 6);
+      expect(File(p.join(installDir, 'trivia.version')).readAsStringSync(), '{"t": 1}');
+    });
+
+    test('a missing trivia.db names its build script', () async {
+      await expectLater(triviaDatabase().open(), throwsA(isA<SourceUnavailable>()
+          .having((e) => e.message, 'message', allOf(
+              contains('No trivia database'), contains('tool/build_trivia_db.py')))));
+    });
+
+    test('the wrong kind of database is SourceUnavailable', () async {
+      // A clue database copied over trivia.db.
+      bundle.assets[LocalDataset.trivia.assetPath] = await dbBytes('a.db');
+      bundle.assets[LocalDataset.trivia.versionAssetPath] = utf8.encode('{}');
+      await expectLater(triviaDatabase().open(), throwsA(isA<SourceUnavailable>()
+          .having((e) => e.message, 'message', contains('holds a clues database'))));
+
+      bundleDb(await triviaBytes('t.db'), '{"swapped": 1}');
+      await expectLater(clueDatabase().open(), throwsA(isA<SourceUnavailable>()
+          .having((e) => e.message, 'message', contains('holds a trivia database'))));
+    });
   });
 
   test('a corrupt database is SourceUnavailable', () async {

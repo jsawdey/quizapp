@@ -40,8 +40,21 @@ with `python3 -m unittest discover tool`.
 
 ## Choosing the question source
 
-Questions come from the local clue database by default, so after building it
-`flutter run` just works. To read from an HTTP API instead, copy
+**In the app**, the ⇄ button in the app bar ("Questions from") switches
+between the sources the build can use, and the app remembers the choice:
+
+- the source the build was configured with (below), always listed first;
+- **Jeopardy! clues** and **Trivia** on the device, if `clues.db` or
+  `trivia.db` was bundled (phone and desktop builds only);
+- **Open Trivia Database** and **The Trivia API**, online.
+
+Hidden questions and the filter carry over; each source applies the parts
+of the filter it supports. Only the configured server gets the access token.
+
+**At build time**, the settings below pick that configured source, which is
+also the default. Questions come from the local clue database unless you say
+otherwise, so after building it `flutter run` just works. To read from an
+HTTP API instead, copy
 `config/question_source.example.json` to `config/question_source.json`
 (git-ignored), fill it in and pass it to Flutter:
 
@@ -59,13 +72,93 @@ flutter run --dart-define-from-file=config/question_source.json
     [docs/question-backend-plan.md](docs/question-backend-plan.md) (§7).
   - `jservice`: the original jService routes, as served by self-hosted copies
     and clones.
+  - `opentdb`: [Open Trivia Database](https://opentdb.com), with
+    `QUESTION_API_URL` set to `https://opentdb.com`. See
+    [General trivia](#general-trivia-open-trivia-database).
+  - `thetriviaapi`: [The Trivia API](https://the-trivia-api.com), with
+    `QUESTION_API_URL` set to `https://the-trivia-api.com`. See
+    [The Trivia API](#the-trivia-api).
 - `QUESTION_API_TOKEN`: optional bearer token. It is compiled into the app.
+- `LOCAL_DATASET`: which bundled database `local` and `api_with_local_fallback`
+  read: `clues` (default) or `trivia` (see
+  [Offline trivia](#offline-trivia)).
 
 An app built without the clue database (for API use) leaves out its ~43 MB;
 if it is set to `local` it says the database is missing. With
 `api_with_local_fallback` it only needs the database while the API is down.
 Questions you hide stay hidden across the local database and a `quizapp` API
 serving the same dataset.
+
+## General trivia (Open Trivia Database)
+
+Set `QUESTION_SOURCE` to `api`, `QUESTION_API_URL` to `https://opentdb.com`
+and `QUESTION_API_DIALECT` to `opentdb` to play general trivia instead of
+Jeopardy clues: multiple choice and true or false, easy to hard, in
+categories from General Knowledge to Video Games. Its questions are licensed
+CC BY-SA 4.0, so unlike the clue database they aren't for personal use only;
+the app credits them under the copyright button in the app bar. It works in
+web builds too, since Open Trivia Database allows requests from any page.
+
+The app asks for a session token when it starts, so questions don't repeat
+until all of them (about 5,300) have been seen, then starts a new one. It
+fetches 50 at a time, at most one batch every 5 seconds, as the API asks.
+Questions you hide stay hidden on that device. The filters offer its
+categories and three difficulties.
+
+### Offline trivia
+
+Open Trivia Database's license allows keeping a copy, so the app can also
+play its questions with no network at all:
+
+```
+python3 tool/build_trivia_db.py
+```
+
+downloads every question (about 12 minutes, at the pace the API asks for;
+the download is kept in `data/` so rebuilding is instant, and `--refresh`
+downloads again) and writes `assets/db/trivia.db`, a few MB. Build the app
+with `QUESTION_SOURCE=local` and `LOCAL_DATASET=trivia` to play it, or with
+`api_with_local_fallback`, `QUESTION_API_DIALECT=opentdb` and
+`LOCAL_DATASET=trivia` to use the live API and fall back to the copy. Keys
+match the live API's, so a hidden question stays hidden across both.
+
+Everything in `assets/db/` is bundled into phone builds, so a build for
+trivia also carries `clues.db` (~87 MB) if you've built it; move it out of
+`assets/db/` first to leave it out. Web builds bundle neither.
+
+`serve_clues.py` serves the copy too, to phones and browsers on your network
+(see [Serving questions](#serving-questions-from-your-own-computer)).
+
+`tool/capture_opentdb.py` saves fresh responses from the live API into
+`test/support/opentdb/`, which the dialect's tests read; rerun it and the
+tests if the API seems to have changed.
+
+### The Trivia API
+
+Set `QUESTION_API_URL` to `https://the-trivia-api.com` and
+`QUESTION_API_DIALECT` to `thetriviaapi` for a second source of general
+trivia: thousands of multiple-choice questions in 10 categories, filtered by
+category and difficulty like OpenTDB's, in web builds too. Its license is
+CC BY-NC 4.0, so **non-commercial use only**; fine for this personal app, and
+credited under the copyright button. It has no session, so questions can
+come round again sooner than with OpenTDB, and there is no offline copy.
+`tool/capture_trivia_api.py` saves fresh responses for its tests, as
+`capture_opentdb.py` does for OpenTDB's.
+
+### Multiple-choice questions
+
+A question can come with answer choices. Then a button for each choice sits
+under the question (numbered, and picked with keys 1–4, on a keyboard).
+Picking one marks the right answer green and a wrong pick red. Tapping the
+card still shows the answer, for playing it as a flash card. The line under
+the category shows the question's difficulty when it has no dollar value.
+
+Open Trivia Database serves them, and so can a `quizapp` API, by adding
+optional `choices` (every option in the order to show them, the response
+among them) and `difficulty` to a question. A source whose license asks for
+credit shows it in the raw data overlay and under the copyright button in the
+app bar. The design is in
+[docs/general-trivia-plan.md](docs/general-trivia-plan.md).
 
 ## Filtering clues
 
@@ -79,15 +172,19 @@ filter is kept between launches. While a filter is on, the button is filled in
 and its tooltip says which filter it is. If no clue matches, the board offers
 to change or clear the filters.
 
-Filters work with the local database and the `quizapp` API. A jService API
-can't filter, so the button isn't shown for it, and with
+Filters work with the local databases, the `quizapp` API, Open Trivia
+Database and The Trivia API; for general trivia they pick categories and a difficulty (easy,
+medium or hard) instead. A jService API can't filter, so the button isn't
+shown for it, and with
 `api_with_local_fallback` the app only offers filters both sources support.
 The design is in [docs/filters-plan.md](docs/filters-plan.md).
 
 ## Serving questions from your own computer
 
-`tool/serve_clues.py` serves the clue database over the `quizapp` API, using
-only the Python standard library. One server can feed several devices, a phone
+`tool/serve_clues.py` serves the clue database, or the trivia database with
+`--db assets/db/trivia.db`, over the `quizapp` API, using only the Python
+standard library. The app asks the server which it holds and offers the
+matching filters. One server can feed several devices, a phone
 build can leave out the database, and a question hidden on one device is
 hidden on all of them.
 
@@ -102,9 +199,11 @@ reachable from your local network. Reported questions are kept in
 with the other tool tests; `test/serve_clues_contract_test.dart` checks the
 app against it.
 
-**Personal use only.** The dataset's terms rule out public-facing use, so keep
-the server on your own network, never the internet. The token is a light
-guard, not real security.
+**Personal use only** for the clue database: the dataset's terms rule out
+public-facing use, so keep the server on your own network, never the
+internet. The trivia database is CC BY-SA 4.0, so the server doesn't warn
+about it, though that's no reason to expose it. The token is a light guard,
+not real security.
 
 Point a **debug or profile** build at it over plain `http`:
 
@@ -169,7 +268,7 @@ Then open `http://<this computer>:8080/`.
   it, so the build refuses it. The app's files themselves don't need the
   token; they contain no clues.
 - **Keyboard:** Space or Enter flips the card, N or → loads the next clue, H
-  hides the clue, and F opens the filters.
+  hides the clue, F opens the filters, and 1–4 pick a choice.
 - Hidden clues are kept in the browser's storage, and reported to the server
   so every device stops seeing them.
 - **Personal use only**, as above: keep the server on your own network. Don't

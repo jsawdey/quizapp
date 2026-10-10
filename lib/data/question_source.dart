@@ -13,6 +13,12 @@ enum FilterKind {
 
   /// [QuestionFilter.boardRows].
   boardRow,
+
+  /// [QuestionFilter.categories].
+  category,
+
+  /// [QuestionFilter.difficulties].
+  difficulty,
 }
 
 /// Narrows which clues a source may return. Sources that can't filter on the
@@ -22,12 +28,19 @@ class QuestionFilter {
   final DateTime? from;
   final DateTime? to;
 
-  /// Rows on the board, 1 (top) to 5 (bottom); see [JeopardyQuestion.boardRow].
+  /// Rows on the board, 1 (top) to 5 (bottom); see [Question.boardRow].
   /// Only narrows Jeopardy! and Double Jeopardy! clues: Final Jeopardy! has
   /// no row, and passes whenever its round does.
   final Set<int>? boardRows;
 
-  const QuestionFilter({this.rounds, this.from, this.to, this.boardRows});
+  /// Category names, as [QuestionSource.filterCategories] lists them.
+  final Set<String>? categories;
+
+  /// Difficulties from [allDifficulties]. Questions without one don't match.
+  final Set<String>? difficulties;
+
+  const QuestionFilter({this.rounds, this.from, this.to, this.boardRows, this.categories,
+    this.difficulties});
 
   static const any = QuestionFilter();
 
@@ -37,13 +50,20 @@ class QuestionFilter {
   /// Every row on the board, top to bottom.
   static const allBoardRows = {1, 2, 3, 4, 5};
 
-  /// This filter with "every round" and "every row" written as no filter, so
-  /// a filter that lets everything through equals [any].
+  /// The difficulties general trivia sources use, easiest first.
+  static const allDifficulties = {'easy', 'medium', 'hard'};
+
+  /// This filter with "every round", "every row", "every difficulty" and "no
+  /// category chosen" written as no filter, so a filter that lets everything
+  /// through equals [any].
   QuestionFilter normalized() => QuestionFilter(
       rounds: rounds != null && rounds!.containsAll(allRounds) ? null : rounds,
       from: from, to: to,
       boardRows: boardRows != null && boardRows!.containsAll(allBoardRows)
-          ? null : boardRows);
+          ? null : boardRows,
+      categories: categories != null && categories!.isEmpty ? null : categories,
+      difficulties: difficulties != null && difficulties!.containsAll(allDifficulties)
+          ? null : difficulties);
 
   /// Whether this filter narrows anything.
   bool get isAny => this == any;
@@ -54,9 +74,11 @@ class QuestionFilter {
       rounds: kinds.contains(FilterKind.round) ? rounds : null,
       from: kinds.contains(FilterKind.airDate) ? from : null,
       to: kinds.contains(FilterKind.airDate) ? to : null,
-      boardRows: kinds.contains(FilterKind.boardRow) ? boardRows : null);
+      boardRows: kinds.contains(FilterKind.boardRow) ? boardRows : null,
+      categories: kinds.contains(FilterKind.category) ? categories : null,
+      difficulties: kinds.contains(FilterKind.difficulty) ? difficulties : null);
 
-  bool matches(JeopardyQuestion q) {
+  bool matches(Question q) {
     final rounds = this.rounds;
     if (rounds != null && !rounds.contains(q.round)) return false;
     final airDate = q.airDate;
@@ -66,18 +88,26 @@ class QuestionFilter {
     if (boardRows != null && !q.isFinalJeopardy && !boardRows.contains(q.boardRow)) {
       return false;
     }
+    final categories = this.categories;
+    if (categories != null && !categories.contains(q.category)) return false;
+    final difficulties = this.difficulties;
+    if (difficulties != null && !difficulties.contains(q.difficulty)) return false;
     return true;
   }
 
   @override
   bool operator ==(Object other) =>
       other is QuestionFilter && setEquals(rounds, other.rounds) &&
-      from == other.from && to == other.to && setEquals(boardRows, other.boardRows);
+      from == other.from && to == other.to && setEquals(boardRows, other.boardRows) &&
+      setEquals(categories, other.categories) && setEquals(difficulties, other.difficulties);
 
   @override
   int get hashCode => Object.hash(
-      rounds == null ? null : Object.hashAllUnordered(rounds!), from, to,
-      boardRows == null ? null : Object.hashAllUnordered(boardRows!));
+      _unordered(rounds), from, to, _unordered(boardRows), _unordered(categories),
+      _unordered(difficulties));
+
+  static int? _unordered(Set<Object>? values) =>
+      values == null ? null : Object.hashAllUnordered(values);
 }
 
 /// [date] as `YYYY-MM-DD`, the format air dates use in filters and the
@@ -123,18 +153,28 @@ abstract class QuestionSource {
   /// The filters this source applies reliably. The app offers only these.
   Set<FilterKind> get supportedFilters => const {};
 
+  /// The credit the questions' license asks for, such as "Questions from
+  /// Open Trivia Database (opentdb.com), CC BY-SA 4.0". Shown in the app;
+  /// null when none is needed.
+  String? get attribution => null;
+
+  /// The category names [QuestionFilter.categories] can choose from, in the
+  /// order to offer them. Only asked for when [supportedFilters] has
+  /// [FilterKind.category]; may throw [SourceUnavailable].
+  Future<List<String>> filterCategories() async => const [];
+
   /// Whether hiding [question] reports it to the backend too.
-  bool canReport(JeopardyQuestion question) => supportsRemoteReport;
+  bool canReport(Question question) => supportsRemoteReport;
 
   /// Prepares the source. May throw [SourceUnavailable].
   Future<void> open() async {}
 
   /// Throws [SourceUnavailable] or [NoQuestionFound].
-  Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any});
+  Future<Question> randomQuestion({QuestionFilter filter = QuestionFilter.any});
 
   /// Tells the backend a question is bad. Only called when [canReport] is
   /// true for it.
-  Future<void> reportRemote(JeopardyQuestion question) async {}
+  Future<void> reportRemote(Question question) async {}
 
   Future<void> close() async {}
 }

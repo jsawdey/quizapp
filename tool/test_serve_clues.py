@@ -17,6 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import build_clue_db  # noqa: E402
+import build_trivia_db  # noqa: E402
 import serve_clues  # noqa: E402
 from test_build_clue_db import SAMPLE_ROWS, write_tsv  # noqa: E402
 
@@ -31,19 +32,24 @@ class ServerTestCase(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.dir = Path(self._tmp.name)
-        write_tsv(self.dir / 'sample.tsv', SAMPLE_ROWS)
-        self.db = self.dir / 'clues.db'
-        build_clue_db.build(self.dir / 'sample.tsv', self.db, 'test', 'abc123')
+        self.db = self.make_db()
         self.reports = self.dir / 'data' / 'reports.db'
         self.web = self.make_web_build()
         self.start()
+
+    def make_db(self):
+        """Builds the database to serve and returns its path."""
+        write_tsv(self.dir / 'sample.tsv', SAMPLE_ROWS)
+        db = self.dir / 'clues.db'
+        build_clue_db.build(self.dir / 'sample.tsv', db, 'test', 'abc123')
+        return db
 
     def make_web_build(self):
         """Returns the directory to serve with --web, or None."""
         return None
 
     def start(self, token=None):
-        self.store = serve_clues.ClueStore(self.db, self.reports, rng=random.Random(1))
+        self.store = serve_clues.open_store(self.db, self.reports, rng=random.Random(1))
         self.server = serve_clues.make_server(self.store, port=0, token=token, quiet=True,
                                               web_root=self.web)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
@@ -138,7 +144,7 @@ class ServeCluesTest(ServerTestCase):
         self.assertEqual(len(store.random(50, date_to='2000-12-31')), 10)
 
     def test_board_rows_match_the_shared_examples(self):
-        # The same examples check the app's JeopardyQuestion.boardRow and
+        # The same examples check the app's Question.boardRow and
         # LocalQuestionSource. Final Jeopardy has no row and always passes.
         examples = json.loads((Path(__file__).resolve().parent.parent / 'test' / 'support'
                                / 'board_rows.json').read_text(encoding='utf-8'))
@@ -216,6 +222,86 @@ class ServeCluesTest(ServerTestCase):
 
     def test_main_needs_a_database(self):
         self.assertEqual(serve_clues.main(['--db', str(self.dir / 'missing.db')]), 1)
+
+
+class ServeTriviaTest(ServerTestCase):
+    """Serves a trivia database built from the saved OpenTDB responses."""
+
+    FIXTURES = Path(__file__).resolve().parent.parent / 'test' / 'support' / 'opentdb'
+
+    def make_db(self):
+        items = []
+        for name in ('random.json', 'random_small_pool.json'):
+            items += json.loads((self.FIXTURES / name).read_text(encoding='utf-8'))['results']
+        db = self.dir / 'trivia.db'
+        build_trivia_db.build(items, db, '2026-10-10T00:00:00+00:00', 'https://opentdb.com')
+        return db
+
+    def test_info(self):
+        status, info = self.request('/v1/info')
+        self.assertEqual(status, 200)
+        self.assertEqual(info['kind'], 'trivia')
+        self.assertEqual(info['namespace'], 'opentdb')
+        self.assertEqual(info['filters'], ['category', 'difficulty'])
+        self.assertEqual(info['count'], 61)
+        self.assertIn('Entertainment: Musicals & Theatres', info['categories'])
+        self.assertEqual(info['categories'], sorted(info['categories']))
+        self.assertEqual(info['license'], 'CC BY-SA 4.0')
+        self.assertIn('Open Trivia Database', info['attribution'])
+
+    def test_random_shape(self):
+        status, body = self.request('/v1/random?count=50')
+        self.assertEqual(status, 200)
+        self.assertEqual(body['namespace'], 'opentdb')
+        questions = body['questions']
+        self.assertEqual(len(questions), 50)
+        self.assertEqual(len({q['key'] for q in questions}), 50)
+        q = questions[0]
+        self.assertEqual(set(q), {'key', 'category', 'clue', 'response', 'choices', 'difficulty'})
+        self.assertIn(q['response'], q['choices'])
+
+    def test_filters(self):
+        musicals = 'category=Entertainment%3A%20Musicals%20%26%20Theatres'
+        status, body = self.request(f'/v1/random?count=50&{musicals}&difficulty=hard')
+        self.assertEqual(status, 200)
+        self.assertEqual(len(body['questions']), 11)
+        self.assertEqual({(q['category'], q['difficulty']) for q in body['questions']},
+                         {('Entertainment: Musicals & Theatres', 'hard')})
+        # Two categories, one of them repeated.
+        _, body = self.request(f'/v1/random?count=50&{musicals}&category=Geography'
+                               f'&category=Geography&difficulty=easy,medium')
+        self.assertTrue(body['questions'])
+        self.assertTrue({q['category'] for q in body['questions']} <= {'Geography'})
+        self.assertEqual(self.request('/v1/random?category=Knitting')[1]['questions'], [])
+        self.assertEqual(self.request('/v1/random?difficulty=impossible')[0], 400)
+
+    def test_every_matching_question_turns_up(self):
+        musicals = 'category=Entertainment%3A%20Musicals%20%26%20Theatres&difficulty=hard'
+        seen = {q['key'] for _ in range(100)
+                for q in self.request(f'/v1/random?count=1&{musicals}')[1]['questions']}
+        self.assertEqual(len(seen), 11)
+
+    def test_report_hides_the_question_and_persists(self):
+        _, body = self.request('/v1/random?count=1')
+        key = body['questions'][0]['key']
+        self.assertEqual(self.request(f'/v1/questions/{key}/report', method='POST')[0], 204)
+        self.assertEqual(self.request('/v1/questions/nope/report', method='POST')[0], 404)
+        for _ in range(5):
+            keys = {q['key'] for q in self.request('/v1/random?count=50')[1]['questions']}
+            self.assertNotIn(key, keys)
+            self.assertEqual(len(keys), 50)
+        self.stop()
+        self.start()
+        _, body = self.request('/v1/random?count=50')
+        self.assertNotIn(key, {q['key'] for q in body['questions']})
+
+    def test_clue_servers_describe_themselves_too(self):
+        clues = ServeCluesTest.make_db(self)
+        store = serve_clues.open_store(clues, self.reports)
+        self.assertEqual(store.info(), {'namespace': 'jwolle1', 'kind': 'clues',
+                                        'filters': ['round', 'air_date', 'row'], 'count': 6})
+        self.assertIsNone(store.license)
+        self.assertEqual(self.store.license, 'CC BY-SA 4.0')
 
 
 class WebUiTest(ServerTestCase):

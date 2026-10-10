@@ -154,7 +154,7 @@ void main() {
   });
 
   test('board rows match the shared examples, and Final Jeopardy passes', () async {
-    // The same examples check JeopardyQuestion.boardRow and serve_clues.py.
+    // The same examples check Question.boardRow and serve_clues.py.
     final examples = (json.decode(File('test/support/board_rows.json').readAsStringSync())
         as List<dynamic>).cast<Map<String, dynamic>>()
       ..sort((a, b) => (a['air_date'] as String).compareTo(b['air_date'] as String));

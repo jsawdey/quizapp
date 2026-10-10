@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:quizapp/config/source_choice.dart';
 import 'package:quizapp/controller/question_repository.dart';
 import 'package:quizapp/data/fallback_question_source.dart';
 import 'package:quizapp/data/filter_store.dart';
@@ -38,7 +39,7 @@ void main() {
   testWidgets('Shows a question and toggles its answer', (WidgetTester tester) async {
     await pumpApp(tester);
 
-    expect(find.text('Random Trivia Question'), findsOneWidget);
+    expect(find.text('Trivia'), findsOneWidget);
     expect(find.text('CATEGORY 1'), findsOneWidget);
     expect(find.text('\$200'), findsOneWidget);
     expect(find.text('CLUE 1'), findsOneWidget);
@@ -192,7 +193,7 @@ void main() {
     tester.view.physicalSize = const Size(360, 640);
     tester.view.devicePixelRatio = 1.0;
     addTearDown(tester.view.reset);
-    source = FakeQuestionSource([JeopardyQuestion(sourceId: 'fake', key: '1',
+    source = FakeQuestionSource([Question(sourceId: 'fake', key: '1',
         question: 'A clue that keeps going and going ' * 8, answer: 'yes',
         category: 'LONG CLUES')]);
     await pumpApp(tester);
@@ -383,6 +384,276 @@ void main() {
     expect(find.byIcon(Icons.cloud_off), findsNothing);
   });
 
+  group('choosing the source', () {
+    late InMemorySourceChoiceStore choice;
+    late FakeQuestionSource clues;
+    late FakeQuestionSource trivia;
+    late SourceChooser sources;
+
+    setUp(() {
+      clues = FakeQuestionSource([fakeQuestion('1')]);
+      trivia = FakeQuestionSource([fakeQuestion('t', answer: 'Bern',
+          choices: ['Bern', 'Wien'], value: null, difficulty: 'easy')]);
+      choice = InMemorySourceChoiceStore();
+      sources = SourceChooser([
+        SourceOption(id: 'local:clues', label: 'Jeopardy! clues', detail: 'On this device',
+            create: () => clues),
+        SourceOption(id: 'opentdb', label: 'Open Trivia Database', detail: 'Online trivia',
+            create: () => trivia),
+      ], store: choice);
+    });
+
+    Future<void> pumpWithSources(WidgetTester tester) async {
+      await tester.pumpWidget(QuizApp(sources: sources,
+          repository: QuestionRepository(source: sources.current.create(), hiddenStore: hidden)));
+      await tester.pump();
+    }
+
+    testWidgets('switches to the chosen source and remembers it', (WidgetTester tester) async {
+      await pumpWithSources(tester);
+      expect(find.text('CLUE 1'), findsOneWidget);
+      expect(find.byTooltip('Questions from: Jeopardy! clues'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.swap_horiz));
+      await tester.pumpAndSettle();
+      expect(find.text('Questions from'), findsOneWidget);
+      expect(find.text('Online trivia'), findsOneWidget);
+      expect(tester.widget<ListTile>(find.widgetWithText(ListTile, 'Jeopardy! clues')).selected,
+          isTrue);
+
+      await tester.tap(find.text('Open Trivia Database'));
+      await tester.pumpAndSettle();
+      expect(find.text('CLUE T'), findsOneWidget);
+      expect(find.byType(ChoiceListWidget), findsOneWidget);
+      expect(find.text('EASY'), findsOneWidget);
+      expect(choice.id, 'opentdb');
+      expect(clues.closes, 1);
+      expect(find.byTooltip('Questions from: Open Trivia Database'), findsOneWidget);
+    });
+
+    testWidgets('closing the dialog changes nothing', (WidgetTester tester) async {
+      await pumpWithSources(tester);
+      await tester.tap(find.byIcon(Icons.swap_horiz));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+      expect(find.text('CLUE 1'), findsOneWidget);
+      expect(choice.id, isNull);
+      expect(clues.closes, 0);
+    });
+
+    testWidgets('can switch away from a source that fails', (WidgetTester tester) async {
+      clues.error = const SourceUnavailable('No clue database is bundled with this build.');
+      await pumpWithSources(tester);
+      expect(find.text('No clue database is bundled with this build.'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.swap_horiz));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open Trivia Database'));
+      await tester.pumpAndSettle();
+      expect(find.text('CLUE T'), findsOneWidget);
+    });
+
+    testWidgets('no button with nothing to choose, or while loading',
+        (WidgetTester tester) async {
+      final gate = Completer<void>();
+      clues.gate = gate.future;
+      await pumpWithSources(tester);
+      expect(tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.swap_horiz))
+          .onPressed, isNull);
+      gate.complete();
+      await tester.pump();
+
+      await pumpApp(tester);
+      expect(find.byIcon(Icons.swap_horiz), findsNothing);
+    });
+  });
+
+  group('choices', () {
+    final capital = fakeQuestion('1', answer: 'Paris',
+        choices: ['Lyon', 'Paris', 'Nice', 'Lille'], difficulty: 'easy', value: null);
+    final boils = fakeQuestion('2', answer: 'True', choices: ['True', 'False'],
+        difficulty: 'medium', value: null);
+
+    Finder choice(String text) => find.widgetWithText(TextButton, text);
+    Color? background(WidgetTester tester, String text) => tester
+        .widget<TextButton>(choice(text)).style!.backgroundColor!.resolve({});
+
+    Future<void> pumpChoices(WidgetTester tester, {String? attribution}) async {
+      source = FakeQuestionSource([capital, boils, fakeQuestion('3')],
+          attribution: attribution);
+      await pumpApp(tester);
+    }
+
+    testWidgets('shows a button per choice and the difficulty', (WidgetTester tester) async {
+      await pumpChoices(tester);
+      expect(find.byType(ChoiceListWidget), findsOneWidget);
+      for (final text in ['Lyon', 'Paris', 'Nice', 'Lille']) {
+        expect(choice(text), findsOneWidget);
+      }
+      expect(find.text('EASY'), findsOneWidget);
+
+      // Without a keyboard there are no number labels.
+      expect(find.text('1'), findsNothing);
+    });
+
+    testWidgets('a wrong pick turns red, the answer green, and the buttons stop',
+        (WidgetTester tester) async {
+      await pumpChoices(tester);
+      final before = background(tester, 'Lyon');
+      await tester.tap(choice('Nice'));
+      await tester.pump();
+
+      expect(background(tester, 'Nice'), isNot(before));
+      expect(background(tester, 'Paris'), isNot(before));
+      expect(background(tester, 'Paris'), isNot(background(tester, 'Nice')));
+      expect(background(tester, 'Lyon'), before);
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      expect(find.byIcon(Icons.close), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp(r'^Paris\s+Right answer$')), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp(r'^Nice\s+Your pick, wrong$')), findsOneWidget);
+      for (final text in ['Lyon', 'Paris', 'Nice', 'Lille']) {
+        expect(tester.widget<TextButton>(choice(text)).onPressed, isNull);
+      }
+      // The card stays on the question.
+      expect(find.text('CLUE 1'), findsOneWidget);
+    });
+
+    testWidgets('a right pick shows only the tick', (WidgetTester tester) async {
+      await pumpChoices(tester);
+      await tester.tap(choice('Paris'));
+      await tester.pump();
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      expect(find.byIcon(Icons.close), findsNothing);
+    });
+
+    testWidgets('the next question starts unpicked; open questions have no choices',
+        (WidgetTester tester) async {
+      await pumpChoices(tester);
+      await tester.tap(choice('Paris'));
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.refresh));
+      await tester.pump();
+      expect(choice('True'), findsOneWidget);
+      expect(choice('False'), findsOneWidget);
+      expect(find.text('MEDIUM'), findsOneWidget);
+      expect(find.byIcon(Icons.check), findsNothing);
+      expect(tester.widget<TextButton>(choice('True')).onPressed, isNotNull);
+
+      await tester.tap(find.byIcon(Icons.refresh));
+      await tester.pump();
+      expect(find.byType(ChoiceListWidget), findsNothing);
+      expect(find.text('\$200'), findsOneWidget);
+    });
+
+    testWidgets('true or false sits side by side on a phone', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await pumpChoices(tester);
+      // Four choices stack in one column on a narrow screen.
+      expect(tester.getTopLeft(choice('Lyon')).dx, tester.getTopLeft(choice('Paris')).dx);
+
+      await tester.tap(find.byIcon(Icons.refresh));
+      await tester.pump();
+      expect(tester.getTopLeft(choice('True')).dy, tester.getTopLeft(choice('False')).dy);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('four choices sit in two columns on a wide screen',
+        (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1024, 768);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await pumpChoices(tester);
+      expect(tester.getTopLeft(choice('Lyon')).dy, tester.getTopLeft(choice('Paris')).dy);
+      expect(tester.getTopLeft(choice('Nice')).dy, tester.getTopLeft(choice('Lille')).dy);
+      expect(tester.getTopLeft(choice('Nice')).dy,
+          greaterThan(tester.getTopLeft(choice('Lyon')).dy));
+    });
+
+    testWidgets('long choices fit on a small screen', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final long = 'A choice that is much too long to fit on one line ' * 3;
+      source = FakeQuestionSource([fakeQuestion('1', answer: long,
+          choices: [long, 'B', 'C', 'D'])]);
+      await pumpApp(tester);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('tapping the card still reveals the answer', (WidgetTester tester) async {
+      await pumpChoices(tester);
+      await tester.tap(find.byType(QuestionAnswerWidget));
+      await tester.pump();
+      expect(find.text('PARIS'), findsOneWidget);
+      // Choosing is still possible.
+      expect(tester.widget<TextButton>(choice('Lyon')).onPressed, isNotNull);
+    });
+
+    testWidgets('number keys pick a choice', (WidgetTester tester) async {
+      await pumpChoices(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit3);
+      await tester.pump();
+      expect(find.byIcon(Icons.close), findsOneWidget);
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      // Only the first pick counts.
+      expect(await tester.sendKeyEvent(LogicalKeyboardKey.digit2), isFalse);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+      await tester.pump();
+      // True or false has no third choice.
+      expect(await tester.sendKeyEvent(LogicalKeyboardKey.digit3), isFalse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit1);
+      await tester.pump();
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      expect(find.byIcon(Icons.close), findsNothing);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+      await tester.pump();
+      // An open question has no choices.
+      expect(await tester.sendKeyEvent(LogicalKeyboardKey.digit1), isFalse);
+    });
+
+    testWidgets('number labels show with a keyboard', (WidgetTester tester) async {
+      await pumpChoices(tester);
+      for (final number in ['1', '2', '3', '4']) {
+        expect(find.descendant(of: find.byType(ChoiceListWidget), matching: find.text(number)),
+            findsOneWidget);
+      }
+    }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
+    testWidgets('credits the source in the overlay and an About dialog',
+        (WidgetTester tester) async {
+      const credit = 'Questions from Open Trivia Database (opentdb.com), CC BY-SA 4.0';
+      await pumpChoices(tester, attribution: credit);
+
+      await tester.tap(find.byIcon(Icons.info));
+      await tester.pump();
+      expect(find.text(credit), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.info));
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('About questions'));
+      await tester.pumpAndSettle();
+      expect(find.text('About questions'), findsOneWidget);
+      expect(find.text(credit), findsOneWidget);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(find.text(credit), findsNothing);
+    });
+
+    testWidgets('no About button when the source needs no credit',
+        (WidgetTester tester) async {
+      await pumpChoices(tester);
+      expect(find.byTooltip('About questions'), findsNothing);
+      await tester.tap(find.byIcon(Icons.info));
+      await tester.pump();
+      expect(find.byType(QuestionOverlay), findsOneWidget);
+    });
+  });
+
   group('filters', () {
     const all = {FilterKind.round, FilterKind.airDate, FilterKind.boardRow};
     final nineties = QuestionFilter(from: DateTime(1990), to: DateTime(1999, 12, 31));
@@ -541,6 +812,77 @@ void main() {
       }
       await apply(tester);
       expect(store.filter, const QuestionFilter(rounds: {3}));
+    });
+
+    group('for general trivia', () {
+      const triviaFilters = {FilterKind.category, FilterKind.difficulty};
+      const categories = ['Art', 'Geography', 'History'];
+
+      setUp(() {
+        source = FakeQuestionSource([
+          fakeQuestion('1', category: 'Art', difficulty: 'easy', value: null),
+          fakeQuestion('2', category: 'History', difficulty: 'hard', value: null),
+        ], supportedFilters: triviaFilters, categories: categories);
+      });
+
+      testWidgets('offers categories and difficulty, not rounds or years',
+          (WidgetTester tester) async {
+        await pumpFiltered(tester);
+        expect(find.byTooltip('Filter questions'), findsOneWidget);
+        await openSheet(tester);
+        expect(find.text('Filter questions'), findsOneWidget);
+        expect(find.text('Rounds'), findsNothing);
+        expect(find.text('Years'), findsNothing);
+        for (final name in [...categories, 'Easy', 'Medium', 'Hard']) {
+          expect(find.widgetWithText(FilterChip, name), findsOneWidget, reason: name);
+        }
+        expect(find.text('Every category. Choose some to play only those.'), findsOneWidget);
+        // No category chosen means every category, so none is selected.
+        expect(chip(tester, 'Art').selected, isFalse);
+        expect(chip(tester, 'Hard').selected, isTrue);
+      });
+
+      testWidgets('choosing categories and a difficulty', (WidgetTester tester) async {
+        await pumpFiltered(tester);
+        await openSheet(tester);
+        await tapChip(tester, 'History');
+        await tapChip(tester, 'Art');
+        expect(find.text('2 chosen.'), findsOneWidget);
+        await tapChip(tester, 'Easy');
+        await tapChip(tester, 'Medium');
+        // The last difficulty can't be turned off.
+        expect(chip(tester, 'Hard').onSelected, isNull);
+        await apply(tester);
+
+        const chosen = QuestionFilter(categories: {'Art', 'History'}, difficulties: {'hard'});
+        expect(store.filter, chosen);
+        expect(source.lastFilter, chosen);
+        expect(find.byTooltip('Filters: Art, History, Hard'), findsOneWidget);
+
+        // Every category can be turned off again.
+        await openSheet(tester);
+        await tapChip(tester, 'Art');
+        await tapChip(tester, 'History');
+        await tapChip(tester, 'Easy');
+        await apply(tester);
+        expect(store.filter, const QuestionFilter(difficulties: {'easy', 'hard'}));
+      });
+
+      testWidgets('many categories are counted', (WidgetTester tester) async {
+        store.filter = const QuestionFilter(categories: {'Art', 'Geography', 'History'});
+        await pumpFiltered(tester);
+        expect(find.byTooltip('Filters: 3 categories'), findsOneWidget);
+      });
+
+      testWidgets('says when the categories can\'t be loaded', (WidgetTester tester) async {
+        source.categoriesError = const SourceUnavailable('offline');
+        await pumpFiltered(tester);
+        await openSheet(tester);
+        expect(find.text("The categories couldn't be loaded."), findsOneWidget);
+        await tapChip(tester, 'Easy');
+        await apply(tester);
+        expect(store.filter, const QuestionFilter(difficulties: {'medium', 'hard'}));
+      });
     });
 
     testWidgets('the sheet only offers what the source supports', (WidgetTester tester) async {

@@ -281,7 +281,7 @@ section is greyed out with "Final Jeopardy has no board row".
 
 **Model and filter.**
 
-- `JeopardyQuestion.boardRow` (`int?`): computed from `value`, `round` and
+- `Question.boardRow` (`int?`): computed from `value`, `round` and
   `airDate`. It is null for Final Jeopardy, when any of the three is missing,
   or when the value doesn't divide into a row from 1 to 5. The era boundary
   is one constant, `valuesDoubledOn = DateTime(2001, 11, 26)`, next to the

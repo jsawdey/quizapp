@@ -1,14 +1,18 @@
 #!/usr/bin/env python3
-"""Serve the clue database over HTTP, using the app's `quizapp` API (v1).
+"""Serve the clue or trivia database over HTTP, using the app's `quizapp` API (v1).
 
-The dataset is property of Jeopardy Productions, Inc. and its author asks that
-it not be used for public-facing apps or products. This server is for your own
-devices only: keep it on localhost or your home network, never the internet.
+The clue dataset is property of Jeopardy Productions, Inc. and its author asks
+that it not be used for public-facing apps or products. Served from the clue
+database, this server is for your own devices only: keep it on localhost or
+your home network, never the internet. The trivia database (from
+tool/build_trivia_db.py) is CC BY-SA 4.0 Open Trivia Database questions, which
+may be shared with credit; the app shows it.
 
 Usage (from the repository root, after python3 tool/build_clue_db.py):
     python3 tool/serve_clues.py                              # localhost only
     python3 tool/serve_clues.py --host 0.0.0.0 --token SECRET  # your LAN
     python3 tool/serve_clues.py --web build/web              # plus the web UI
+    python3 tool/serve_clues.py --db assets/db/trivia.db     # general trivia
 
 Then build the app with QUESTION_SOURCE=api (or api_with_local_fallback),
 QUESTION_API_DIALECT=quizapp and QUESTION_API_URL=http://<this computer>:8080.
@@ -17,15 +21,17 @@ flutter build web --no-web-resources-cdn, browsers can play at
 http://<this computer>:8080/.
 
 API (docs/question-backend-plan.md section 7):
+    GET  /v1/info      what is served: kind, filters, categories, credit
     GET  /v1/random?count=10[&round=1,2][&from=YYYY-MM-DD][&to=YYYY-MM-DD][&row=4,5]
-         (an empty "questions" list when nothing matches the filters)
+    GET  /v1/random?count=10[&category=Art&category=History][&difficulty=easy,hard]
+         (trivia; an empty "questions" list when nothing matches the filters)
     POST /v1/questions/{key}/report
 
 With --token, the API needs the bearer token but the web UI's files don't:
 they hold no clues, and the page asks for the token.
 
-Reported clues are kept in a separate database (--reports) and never served
-again, so hiding a clue on one device hides it on all of them.
+Reported questions are kept in a separate database (--reports) and never
+served again, so hiding one on one device hides it on all of them.
 
 Only the Python standard library is required.
 """
@@ -59,7 +65,7 @@ ATTEMPTS_PER_CLUE = 5
 
 # The day clue values doubled. A clue's board row (1 top to 5 bottom) is its
 # value over its round's top-row value, which doubled then; as
-# JeopardyQuestion.boardRow in the app.
+# Question.boardRow in the app.
 VALUES_DOUBLED_ON = '2001-11-26'
 ROW_BASE = ('(CASE c.round WHEN 1 THEN 100 ELSE 200 END '
             '* CASE WHEN g.air_date >= ? THEN 2 ELSE 1 END)')
@@ -90,8 +96,27 @@ class BadRequest(Exception):
     pass
 
 
+def read_meta(db_path):
+    """The meta table of the database at db_path, opened read-only."""
+    uri = Path(db_path).resolve().as_uri() + '?mode=ro'
+    with contextlib.closing(sqlite3.connect(uri, uri=True)) as conn:
+        return dict(conn.execute('SELECT key, value FROM meta'))
+
+
+def open_store(db_path, reports_path, rng=None):
+    """A ClueStore or TriviaStore, as the database's dataset_kind says."""
+    if read_meta(db_path).get('dataset_kind') == 'trivia':
+        return TriviaStore(db_path, reports_path, rng)
+    return ClueStore(db_path, reports_path, rng)
+
+
 class ClueStore:
     """Read-only access to the clue database plus the reported-clue list."""
+
+    kind = 'clues'
+    filters = ['round', 'air_date', 'row']
+    # The dataset's terms: personal use only.
+    license = None
 
     def __init__(self, db_path, reports_path, rng=None):
         self.db_uri = Path(db_path).resolve().as_uri() + '?mode=ro'
@@ -198,6 +223,20 @@ class ClueStore:
                     found.setdefault(row['clue_key'], row)
         return [_to_json(row) for row in found.values()]
 
+    def random_from_query(self, query):
+        count, rounds, date_from, date_to, rows = parse_random_query(query)
+        return self.random(count, rounds, date_from, date_to, rows)
+
+    def parse_key(self, text):
+        try:
+            return int(text)
+        except ValueError:
+            raise BadRequest('question keys are integers')
+
+    def info(self):
+        return {'namespace': self.namespace, 'kind': self.kind, 'filters': self.filters,
+                'count': self.max_id}
+
     def report(self, key):
         """Records a report; returns False if no clue has that key."""
         with self._clues() as conn:
@@ -210,6 +249,128 @@ class ClueStore:
             conn.commit()
             self.reported.add(key)
         return True
+
+
+class TriviaStore:
+    """Read-only access to the trivia database plus its reported-question list."""
+
+    kind = 'trivia'
+    filters = ['category', 'difficulty']
+    difficulties = ('easy', 'medium', 'hard')
+
+    def __init__(self, db_path, reports_path, rng=None):
+        self.db_uri = Path(db_path).resolve().as_uri() + '?mode=ro'
+        self.reports_path = Path(reports_path)
+        self.rng = rng or random.Random()
+        self._lock = threading.Lock()
+        self._counts = {}
+
+        meta = read_meta(db_path)
+        schema = meta.get('schema_version')
+        if schema != str(SUPPORTED_SCHEMA_VERSION):
+            raise ValueError(f'{db_path} has schema version {schema}; this server '
+                             f'reads version {SUPPORTED_SCHEMA_VERSION}. Rebuild it.')
+        self.namespace = meta.get('dataset_namespace', 'opentdb')
+        self.license = meta.get('license')
+        self.attribution = meta.get('attribution')
+        with self._questions() as conn:
+            self.max_id = conn.execute('SELECT MAX(id) FROM questions').fetchone()[0] or 0
+            self.categories = [row[0] for row in conn.execute(
+                'SELECT DISTINCT category FROM questions ORDER BY category')]
+
+        self.reports_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._reports() as conn:
+            # Trivia keys are text, unlike clue keys, so they get a table of their own.
+            conn.execute('''CREATE TABLE IF NOT EXISTS reported_trivia (
+                              key         TEXT PRIMARY KEY,
+                              reported_at TEXT NOT NULL)''')
+            self.reported = {row[0] for row in conn.execute('SELECT key FROM reported_trivia')}
+
+    def _questions(self):
+        # One connection per call: the server handles requests on many threads.
+        return contextlib.closing(sqlite3.connect(self.db_uri, uri=True))
+
+    def _reports(self):
+        return contextlib.closing(sqlite3.connect(self.reports_path))
+
+    def random(self, count, categories=None, difficulties=None):
+        """Up to count distinct questions, each equally likely among those matching."""
+        where, args = [], []
+        if categories:
+            where.append(f'category IN ({", ".join("?" * len(categories))})')
+            args.extend(sorted(categories))
+        if difficulties:
+            where.append(f'difficulty IN ({", ".join("?" * len(difficulties))})')
+            args.extend(sorted(difficulties))
+        condition = f'WHERE {" AND ".join(where)}' if where else ''
+        with self._questions() as conn:
+            conn.row_factory = sqlite3.Row
+            key = (condition, tuple(args))
+            with self._lock:
+                total = self._counts.get(key)
+            if total is None:
+                total = conn.execute(f'SELECT COUNT(*) FROM questions {condition}', args).fetchone()[0]
+                with self._lock:
+                    self._counts[key] = total
+            found = []
+            # Enough places to skip every reported question and still fill the batch.
+            for offset in self.rng.sample(range(total), min(total, count + len(self.reported))):
+                row = conn.execute(f'SELECT * FROM questions {condition} ORDER BY id '
+                                   'LIMIT 1 OFFSET ?', [*args, offset]).fetchone()
+                if row['key'] not in self.reported:
+                    found.append(_trivia_to_json(row))
+                    if len(found) == count:
+                        break
+        return found
+
+    def random_from_query(self, query):
+        """Takes count, category (repeated, one name each) and difficulty=easy,hard."""
+        params = parse_qs(query, keep_blank_values=True)
+        count = parse_count({k: v[-1] for k, v in params.items()})
+        categories = {c for c in params.get('category', []) if c} or None
+        difficulties = None
+        if params.get('difficulty', [''])[-1]:
+            difficulties = set(params['difficulty'][-1].split(','))
+            if not difficulties <= set(self.difficulties):
+                raise BadRequest('difficulty must be a comma-separated list of '
+                                 + ', '.join(self.difficulties))
+        return self.random(count, categories, difficulties)
+
+    def parse_key(self, text):
+        return text
+
+    def info(self):
+        info = {'namespace': self.namespace, 'kind': self.kind, 'filters': self.filters,
+                'count': self.max_id, 'categories': self.categories}
+        if self.license:
+            info['license'] = self.license
+        if self.attribution:
+            info['attribution'] = self.attribution
+        return info
+
+    def report(self, key):
+        """Records a report; returns False if no question has that key."""
+        with self._questions() as conn:
+            if conn.execute('SELECT 1 FROM questions WHERE key = ?', (key,)).fetchone() is None:
+                return False
+        now = datetime.datetime.now(datetime.timezone.utc).replace(microsecond=0).isoformat()
+        with self._lock, self._reports() as conn:
+            conn.execute('INSERT OR IGNORE INTO reported_trivia (key, reported_at) VALUES (?, ?)',
+                         (key, now))
+            conn.commit()
+            self.reported.add(key)
+        return True
+
+
+def _trivia_to_json(row):
+    return {
+        'key': row['key'],
+        'category': row['category'],
+        'clue': row['question'],
+        'response': row['answer'],
+        'choices': json.loads(row['choices']),
+        'difficulty': row['difficulty'],
+    }
 
 
 def _to_json(row):
@@ -228,15 +389,21 @@ def _to_json(row):
     }
 
 
-def parse_random_query(query):
-    """Parses /v1/random's query string. Unknown parameters are ignored."""
-    params = {k: v[-1] for k, v in parse_qs(query, keep_blank_values=True).items()}
+def parse_count(params):
+    """The count parameter, capped at MAX_COUNT; DEFAULT_COUNT if absent."""
     try:
         count = int(params.get('count', DEFAULT_COUNT))
     except ValueError:
         raise BadRequest('count must be a number')
     if count < 1:
         raise BadRequest('count must be at least 1')
+    return min(count, MAX_COUNT)
+
+
+def parse_random_query(query):
+    """Parses /v1/random's query string for clues. Unknown parameters are ignored."""
+    params = {k: v[-1] for k, v in parse_qs(query, keep_blank_values=True).items()}
+    count = parse_count(params)
     rounds = None
     if params.get('round'):
         try:
@@ -260,7 +427,7 @@ def parse_random_query(query):
                 dates[name] = datetime.date.fromisoformat(params[name]).isoformat()
             except ValueError:
                 raise BadRequest(f'{name} must be a date like 2004-03-01')
-    return min(count, MAX_COUNT), rounds, dates.get('from'), dates.get('to'), rows
+    return count, rounds, dates.get('from'), dates.get('to'), rows
 
 
 def web_file(root, url_path):
@@ -318,20 +485,20 @@ def make_handler(store, token=None, quiet=False, web_root=None):
                 return self._send_json(HTTPStatus.UNAUTHORIZED,
                                        {'error': 'missing or wrong bearer token'})
             try:
+                if parts == ['v1', 'info']:
+                    if method != 'GET':
+                        return self._not_allowed('GET')
+                    return self._send_json(HTTPStatus.OK, store.info())
                 if parts == ['v1', 'random']:
                     if method != 'GET':
                         return self._not_allowed('GET')
-                    count, rounds, date_from, date_to, rows = parse_random_query(url.query)
-                    questions = store.random(count, rounds, date_from, date_to, rows)
+                    questions = store.random_from_query(url.query)
                     return self._send_json(HTTPStatus.OK,
                                            {'namespace': store.namespace, 'questions': questions})
                 if len(parts) == 4 and parts[:2] == ['v1', 'questions'] and parts[3] == 'report':
                     if method != 'POST':
                         return self._not_allowed('POST')
-                    try:
-                        key = int(parts[2])
-                    except ValueError:
-                        raise BadRequest('question keys are integers')
+                    key = store.parse_key(parts[2])
                     if not store.report(key):
                         return self._send_json(HTTPStatus.NOT_FOUND, {'error': 'no such question'})
                     return self._send(HTTPStatus.NO_CONTENT)
@@ -414,7 +581,7 @@ def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('--db', type=Path, default=DEFAULT_DB,
-                        help='clue database to serve (default: %(default)s)')
+                        help='clue or trivia database to serve (default: %(default)s)')
     parser.add_argument('--reports', type=Path, default=DEFAULT_REPORTS,
                         help='where reported clues are kept (default: %(default)s)')
     parser.add_argument('--host', default='127.0.0.1',
@@ -434,28 +601,29 @@ def parse_args(argv):
 def main(argv=None):
     args = parse_args(argv)
     if not args.db.exists():
-        print(f'error: {args.db} does not exist. Run python3 tool/build_clue_db.py first.',
-              file=sys.stderr)
+        print(f'error: {args.db} does not exist. Run python3 tool/build_clue_db.py '
+              '(or tool/build_trivia_db.py) first.', file=sys.stderr)
         return 1
     if args.web is not None and not (args.web / 'index.html').is_file():
         print(f'error: {args.web} has no index.html. Run '
               'flutter build web --no-web-resources-cdn first.', file=sys.stderr)
         return 1
     try:
-        store = ClueStore(args.db, args.reports)
+        store = open_store(args.db, args.reports)
     except (ValueError, sqlite3.Error) as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
     server = make_server(store, args.host, args.port, args.token, args.quiet, args.web)
     host, port = server.server_address[:2]
-    print(f'Serving {store.max_id} clues on http://{host}:{port}/v1/random', flush=True)
+    noun = 'clues' if store.kind == 'clues' else 'trivia questions'
+    print(f'Serving {store.max_id} {noun} on http://{host}:{port}/v1/random', flush=True)
     if args.web is not None:
         print(f'Web UI on http://{host}:{port}/', flush=True)
         if web_build_uses_cdn(args.web):
             print(f'Warning: {args.web} loads CanvasKit and fonts from Google, so browsers '
                   'without internet access show a blank page. Rebuild it with '
                   'flutter build web --no-web-resources-cdn.', flush=True)
-    if args.host not in ('127.0.0.1', 'localhost', '::1'):
+    if args.host not in ('127.0.0.1', 'localhost', '::1') and store.license is None:
         print('Personal use only: keep this server off the internet (see the dataset terms '
               'in README.md).' + ('' if args.token else ' Consider --token.'), flush=True)
     try:

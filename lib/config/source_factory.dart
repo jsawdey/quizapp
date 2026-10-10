@@ -11,12 +11,12 @@ import 'package:quizapp/model/question.dart';
 QuestionSource createQuestionSource(SourceConfig config, {ApiCredentials? credentials}) {
   switch (config.kind) {
     case SourceKind.local:
-      return LocalQuestionSource();
+      return LocalQuestionSource(dataset: config.localDataset);
     case SourceKind.api:
       return _api(config, credentials);
     case SourceKind.apiWithLocalFallback:
       return FallbackQuestionSource(primary: _api(config, credentials),
-          fallback: LocalQuestionSource());
+          fallback: LocalQuestionSource(dataset: config.localDataset));
   }
 }
 
@@ -26,17 +26,6 @@ HttpQuestionSource _api(SourceConfig config, ApiCredentials? credentials) =>
       dialect: apiDialects[config.apiDialect]!(),
       credentials: credentials ?? ApiCredentials(config.apiToken),
     );
-
-/// Builds the source this build was configured with. A bad configuration
-/// gives a source whose [QuestionSource.open] fails with the problem, so the
-/// app reports it instead of crashing.
-QuestionSource questionSourceFromEnvironment({ApiCredentials? credentials}) {
-  try {
-    return createQuestionSource(SourceConfig.fromEnvironment(), credentials: credentials);
-  } on SourceConfigError catch (e) {
-    return UnavailableQuestionSource('Invalid question source settings: ${e.message}');
-  }
-}
 
 /// A source that can never be opened, carrying the reason why.
 class UnavailableQuestionSource extends QuestionSource {
@@ -50,6 +39,6 @@ class UnavailableQuestionSource extends QuestionSource {
   Future<void> open() async => throw SourceUnavailable(reason);
 
   @override
-  Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async =>
+  Future<Question> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async =>
       throw SourceUnavailable(reason);
 }

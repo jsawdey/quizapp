@@ -243,6 +243,18 @@ Optional header: Authorization: Bearer <token>
   simple `SELECT`.
 - `count` is capped at 50 by the server. Unknown query parameters are ignored.
   Breaking changes go under `/v2`.
+- Added since: optional `choices` and `difficulty` per question, for
+  multiple-choice trivia ([general-trivia-plan.md](general-trivia-plan.md)
+  §5). The app skips a question whose `choices` don't include its
+  `response`.
+- Added since: `GET {base}/v1/info` says what the server holds:
+  `{"namespace", "kind": "clues" | "trivia", "filters": [...], "count",
+  "categories" (trivia), "license" and "attribution" (when the data has
+  them)}`. Filter names are `round`, `air_date` and `row` for clues and
+  `category` and `difficulty` for trivia. Trivia servers take
+  `category=<name>` (repeated, one name each) and `difficulty=easy,hard` on
+  `/v1/random`. The app reads it when it opens and takes a 404 or 405 to
+  mean a clue server from before it.
 
 ## 8. `tool/serve_clues.py` (optional self-hosting)
 
@@ -295,7 +307,11 @@ flutter run                      # no file -> local (the default)
 - **Not in v1:** a settings screen for switching backends at runtime. The
   factory makes it easy to add later (persist the choice in a `settings`
   table in `user.db` and rebuild the repository). Build-time config keeps the
-  UI unchanged for a single-user app.
+  UI unchanged for a single-user app. *Added later, with general trivia:* a
+  "Questions from" dialog (`lib/config/source_choice.dart`) offers the
+  configured source, the bundled databases and the public trivia APIs. The
+  choice is kept with shared_preferences, and the repository swaps its source
+  in place rather than being rebuilt.
 
 ## 10. UI changes (`lib/quiz_page.dart` and widgets)
 
@@ -387,4 +403,5 @@ pass at every commit. The SessionStart hook already installs everything needed.
   domain you own); private certificates don't work, because Android apps
   don't trust user-installed CAs by default.
 - **Decided:** build-time config is enough for v1. A runtime backend switcher
-  is left for later (§9).
+  is left for later (§9). It has since been added; build-time config now
+  picks the default.

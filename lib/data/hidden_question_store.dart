@@ -10,8 +10,8 @@ import 'package:sqflite/sqflite.dart' as sqflite;
 /// for every source and survives rebuilding the clue database.
 abstract class HiddenQuestionStore {
   Future<void> open();
-  bool isHidden(JeopardyQuestion question);
-  Future<void> hide(JeopardyQuestion question);
+  bool isHidden(Question question);
+  Future<void> hide(Question question);
   Future<void> close();
 }
 
@@ -23,10 +23,10 @@ class InMemoryHiddenQuestionStore implements HiddenQuestionStore {
   Future<void> open() async {}
 
   @override
-  bool isHidden(JeopardyQuestion question) => _hidden.contains(_id(question));
+  bool isHidden(Question question) => _hidden.contains(_id(question));
 
   @override
-  Future<void> hide(JeopardyQuestion question) async => _hidden.add(_id(question));
+  Future<void> hide(Question question) async => _hidden.add(_id(question));
 
   @override
   Future<void> close() async {}
@@ -71,10 +71,10 @@ class SqfliteHiddenQuestionStore implements HiddenQuestionStore {
   }
 
   @override
-  bool isHidden(JeopardyQuestion question) => _hidden.contains(_id(question));
+  bool isHidden(Question question) => _hidden.contains(_id(question));
 
   @override
-  Future<void> hide(JeopardyQuestion question) async {
+  Future<void> hide(Question question) async {
     final db = _db;
     if (db == null) throw StateError('HiddenQuestionStore is not open');
     await db.insert('hidden', {
@@ -116,10 +116,10 @@ class SharedPrefsHiddenQuestionStore implements HiddenQuestionStore {
   }
 
   @override
-  bool isHidden(JeopardyQuestion question) => _hidden.contains(_id(question));
+  bool isHidden(Question question) => _hidden.contains(_id(question));
 
   @override
-  Future<void> hide(JeopardyQuestion question) async {
+  Future<void> hide(Question question) async {
     final store = _store;
     if (store == null) throw StateError('HiddenQuestionStore is not open');
     final id = _id(question);
@@ -132,7 +132,7 @@ class SharedPrefsHiddenQuestionStore implements HiddenQuestionStore {
   Future<void> close() async => _store = null;
 }
 
-String _id(JeopardyQuestion q) => _key(q.sourceId, q.key);
+String _id(Question q) => _key(q.sourceId, q.key);
 
 // A separator that can't appear in a source id.
 String _key(String sourceId, String key) => '$sourceId\u0000$key';

@@ -16,10 +16,10 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 /// Runs LocalQuestionSource against a database built by tool/build_clue_db.py,
 /// when one exists. Skipped otherwise: the dataset can't be committed.
 void main() {
-  final file = File(ClueDatabase.assetPath);
+  final file = File(LocalDataset.clues.assetPath);
   final skip = file.existsSync()
       ? false
-      : 'No ${ClueDatabase.assetPath}; run python3 tool/build_clue_db.py to include this test.';
+      : 'No ${LocalDataset.clues.assetPath}; run python3 tool/build_clue_db.py to include this test.';
 
   late LocalQuestionSource source;
 
@@ -43,7 +43,7 @@ void main() {
     await db.close();
     expect(meta['schema_version'], '${ClueDatabase.supportedSchemaVersion}');
     expect(meta['dataset_namespace'], LocalQuestionSource.defaultNamespace);
-    expect(File(ClueDatabase.versionAssetPath).existsSync(), isTrue);
+    expect(File(LocalDataset.clues.versionAssetPath).existsSync(), isTrue);
   }, skip: skip);
 
   test('returns well-formed random clues', () async {
@@ -125,7 +125,7 @@ void main() {
     final db = await databaseFactoryFfi.openDatabase(file.absolute.path,
         options: OpenDatabaseOptions(readOnly: true, singleInstance: false));
     addTearDown(db.close);
-    // Clue values doubled on 2001-11-26; see JeopardyQuestion.boardRow.
+    // Clue values doubled on 2001-11-26; see Question.boardRow.
     final misfits = await db.rawQuery('''
         SELECT COUNT(*) AS n FROM (
           SELECT c.value, CASE c.round WHEN 1 THEN 100 ELSE 200 END

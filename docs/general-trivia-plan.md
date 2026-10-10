@@ -10,6 +10,60 @@ questions, starting with the [Open Trivia Database](https://opentdb.com)
 It builds on the [web UI plan](web-ui-plan.md) and should come after it, so
 the new card mode is written once for phones and browsers.
 
+**Status:** all six commits of §9 are done. In order: the rename; the model
+and UI for choices, difficulty and attribution; real OpenTDB responses in
+`test/support/opentdb/`, which corrected §1, §4 and §10 (see "Checked
+against the live API" in §4); `OpenTdbDialect`; the offline copy with
+category and difficulty filters; and `TheTriviaApiDialect`.
+
+Where the code differs from this plan:
+
+- Commits 1–2 (§2–§3): the seeded shuffle waited for the OpenTDB dialect
+  (commit 4), the first source that needs it, because the `quizapp` API
+  sends choices in display order; and "About questions" is a copyright
+  button in the app bar, shown only when the source needs credit, since the
+  app bar has no menu.
+- Commit 4: codes 3 and 4 both get a new token (a new token has seen
+  nothing, so `api_token.php?command=reset` is never needed), and only
+  batch requests are paced, so the token request at startup doesn't hold up
+  the first question.
+- Commit 5, filters (§6): the filter sheet gained Categories and Difficulty
+  sections. Choosing no category means every category. `OpenTdbDialect`
+  fetches category ids when the sheet first asks, not in `open()`, and a new
+  `ApiDialect.prepare` hook counts each chosen category's questions
+  (`api_count.php`) before the first batch for a filter, so a batch asks for
+  no more than its category holds (the code 1 cap from §4). Each batch draws
+  from one category and difficulty, in proportion to their size.
+- Commit 5, offline (§7): the local trivia source picks with a random
+  `OFFSET` among the matches, counted once per filter, which is exactly fair
+  at a few thousand rows; the ids don't need any order. `serve_clues.py`
+  answers a new `GET /v1/info` (question backend plan §7), which tells the
+  app whether it holds clues or trivia, its filters, categories and credit.
+  `trivia.db` stays out of web builds: the web build can't open SQLite, so
+  the browser plays it through `serve_clues.py`.
+- Commit 6, The Trivia API, checked against the live API on 2026-10-10
+  (`tool/capture_trivia_api.py`, saved in `test/support/the_trivia_api/`).
+  §1's row was mostly right; what it missed:
+  - Questions carry a category *slug* (`film_and_tv`), and `/v2/categories`
+    maps each display name to all its slugs (`"Film & TV": ["movies",
+    "film", "film_and_tv"]`). The dialect reads that list in `open()`, shows
+    display names, and sends every slug of a chosen category.
+  - An unknown category is ignored, not refused: the API sends General
+    Knowledge instead. The source's own check of each question against the
+    filter catches it.
+  - `limit` over 50 is capped silently, and `limit=0` returns hundreds, so
+    the dialect never sends 0. A bad `difficulties` value is HTTP 400 with a
+    plain-text body.
+  - A category with fewer questions than asked for comes back as a short
+    page, so OpenTDB's counting isn't needed.
+  - By default only `text_choice` questions are served (`/v2/metadata` also
+    counts `text_input` and `image_choice`); the dialect skips any other
+    type. Every question has 3 wrong answers, some answers end in a space or
+    a no-break space, and the text needs no decoding.
+  - Rate limit: `ratelimit-policy: 20;w=5` (20 requests per 5 seconds); the
+    dialect paces batches 300 ms apart. CORS allows any origin.
+  - The license is CC BY-NC 4.0, confirmed on the site.
+
 ## 0. Why, and what's in the way
 
 **Why bother:**
@@ -45,13 +99,13 @@ build-time config.
 
 ## 1. Sources considered
 
-The API details below come from search results and third-party summaries,
-because the sites themselves were blocked from this session. **Check each
-one against a saved real response before coding** (§9, commit 3).
+The OpenTDB details were checked against the live API on 2026-10-10 (§9,
+commit 3; the corrections are in §4). The Trivia API's still come from search
+summaries; check them the same way before writing its dialect.
 
 | Source | Shape | License | Ids | Notes |
 |---|---|---|---|---|
-| **Open Trivia DB** | `GET /api.php?amount=N&category=&difficulty=&type=&encode=&token=` → `{response_code, results: [{type, difficulty, category, question, correct_answer, incorrect_answers}]}` | CC BY-SA 4.0 | none | One request per IP every 5 s (`response_code` 5 when exceeded). Session tokens stop repeats. Thousands of verified questions; community dumps exist. |
+| **Open Trivia DB** | `GET /api.php?amount=N&category=&difficulty=&type=&encode=&token=` → `{response_code, results: [{type, difficulty, category, question, correct_answer, incorrect_answers}]}` | CC BY-SA 4.0 | none | Asks for one request per IP every 5 s; bursts get `response_code` 5 with HTTP 429. Session tokens stop repeats. About 5,300 verified questions (`api_count_global.php`); community dumps exist. |
 | The Trivia API | `GET /v2/questions?limit=&categories=&difficulties=` → `[{id, category, question: {text}, correctAnswer, incorrectAnswers, difficulty, tags, type}]` | CC BY-NC 4.0 | yes | Free for non-commercial use (this app is personal). Commercial use and advanced features are paid. |
 
 **Recommendation: OpenTDB first.** Its license allows a local copy (§7),
@@ -144,9 +198,11 @@ returning decoded JSON), so dialects get the same timeout and error mapping.
 **OpenTDB specifics:**
 
 - **Request:** `api.php?amount=50&encode=url3986&token=…`. URL encoding
-  avoids parsing HTML entities: each text field goes through
-  `Uri.decodeComponent`. Optional filters (§6) add `category`, `difficulty`
-  and `type`.
+  avoids parsing HTML entities: `question`, `correct_answer`, each of
+  `incorrect_answers` and `category` go through `Uri.decodeComponent`, then
+  `trim()` (some answers have a stray leading or trailing space). `type` and
+  `difficulty` aren't encoded. Optional filters (§6) add `category`,
+  `difficulty` and `type`.
 - **Session:** `open()` requests a token from
   `api_token.php?command=request`. Response code 3 (token not found or
   expired) raises `SessionExpired`, which gets a new token. Code 4 (every
@@ -155,7 +211,8 @@ returning decoded JSON), so dialects get the same timeout and error mapping.
   becomes `SourceUnavailable('Open Trivia DB is rate limiting; try again in a
   few seconds')`. Code 1 (no results) becomes `NoQuestionFound`, and code 2
   (invalid parameter) becomes `SourceUnavailable`.
-- **Keys:** `sha256(category \0 question \0 correct_answer)`, the first 16 hex
+- **Keys:** `sha256(category \0 question \0 correct_answer)`, on the decoded,
+  trimmed text, the first 16 hex
   characters, with source id `opentdb`. This needs `package:crypto`, which
   works on every platform including the web. If OpenTDB edits a question's
   text, a hidden question comes back. That's acceptable.
@@ -178,9 +235,45 @@ backend plan (§6), no hosted service is a default. With
 (Jeopardy clues, or OpenTDB's own copy after §7).
 
 **Web:** this is the first source that's on a different origin from the
-page. It works only if OpenTDB sends CORS headers, which I couldn't check
-from this session. If it doesn't, the web UI uses OpenTDB through §7 (served
-by `serve_clues.py`) instead.
+page. OpenTDB sends `access-control-allow-origin: *` on `api.php`,
+`api_token.php` and `api_category.php`, so the web build can call it
+directly. Web config only defaults to the page's own server and `quizapp`, so
+`QUESTION_API_URL=https://opentdb.com` and `QUESTION_API_DIALECT=opentdb`
+work there once the dialect exists.
+
+**Checked against the live API** (2026-10-10, `tool/capture_opentdb.py`,
+saved in `test/support/opentdb/` with each request's URL and HTTP status).
+What differs from the above, and what the dialect must do about it:
+
+- **Code 5 comes with HTTP 429**, and its body says `result`, not `results`.
+  `HttpQuestionSource._send` turns any non-2xx into `SourceUnavailable`
+  before a dialect sees the body, so the friendly message belongs there: map
+  429 to "<source> is busy; try again in a few seconds" for every dialect.
+  The limit is looser than documented: requests a second apart were never
+  refused, but parallel bursts of 8 lost 2–3. The 5 s pacing stays, as the
+  documented rule.
+- **Code 1 is all or nothing.** Asking for more questions than a filter
+  matches returns code 1 and no questions, with or without a token, instead
+  of a short page. Unfiltered (5,000+ questions) that never happens, but
+  with a category and difficulty (Musicals & Theatres, hard: 11 questions) a
+  batch of 50 always fails. When a category is set, cap `amount` at the
+  count from `api_count.php?category=N` for the chosen difficulty, fetched
+  once per filter. `api_count.php` doesn't count by type, so a `type` filter
+  also needs a retry with half the amount on code 1, down to 1, before
+  `NoQuestionFound`.
+- **An unknown category is code 1, not 2.** Code 2 is only for malformed
+  parameters (`amount=0`). So a wrong category id looks like "no questions";
+  map names to ids only from `api_category.php`.
+- **Code 4 is also all or nothing.** With 2 unseen questions left on a
+  token, a request for 5 gets code 4, while a request for 2 gets both. Reset
+  and retry as above: that drops at most a batch of unseen questions, which
+  is fine.
+- **`amount` over 50 is capped silently** (code 0, 50 questions), so 50 is
+  the batch size to use.
+- **Token responses:** `request` returns `{response_code, response_message,
+  token}`; `reset` returns `{response_code: 0, token}` with the same token.
+  Tokens are 64 hex characters.
+
 
 ## 5. The `quizapp` API (v1, additive)
 
@@ -280,14 +373,19 @@ Commits 1–4 are the feature. Commits 5 and 6 can wait or be dropped.
 
 ## 10. Risks and open questions
 
-- **Unverified API details.** Everything in §1 and §4 about OpenTDB and The
-  Trivia API comes from search summaries; the sites were blocked from this
-  session. Commit 3 exists to catch mistakes before the dialect is written.
-  CORS for the web is the biggest unknown.
+- **API details can drift.** OpenTDB was checked on 2026-10-10 (§4); rerun
+  `tool/capture_opentdb.py` and the dialect tests if it starts misbehaving.
+  The Trivia API was checked the same day; `tool/capture_trivia_api.py`
+  refreshes its fixtures.
 - **Rate limit.** One request every 5 seconds per IP is shared by every
   device behind your router. Batches of 50 and the pacing in §4 keep normal
-  play well under it, but several devices starting at once can get code 5.
+  play well under it, but several devices starting at once can get code 5
+  (HTTP 429). In practice OpenTDB tolerates more than its documented rate.
   The offline copy (§7) removes the problem.
+- **One category and difficulty per request.** §6 plans sets of categories
+  and difficulties, but `api.php` takes one of each. A filter with several
+  needs a batch per value (picking one at random per batch keeps it fair
+  enough), each subject to the code 1 cap in §4.
 - **Licence obligations.** CC BY-SA requires attribution (§3) and that
   redistributed copies of the questions stay under CC BY-SA. That covers
   `trivia.db` if you ever share it, not the app's code. CC BY-NC (The Trivia

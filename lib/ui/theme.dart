@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 class CustomAppTheme {
 
+  /// The board's blue, behind the panels and the answer choices.
+  static const Color boardBlue = Color(0xFF060CE9);
+
   // Question/Answer theme constants
   static const String _qaFontFamily = 'Korinna';
   static const double _qaFontSize = 28.0;
@@ -22,6 +25,10 @@ class CustomAppTheme {
 
   // Loading and error messages in the clue panel
   static const double _messageFontSize = 20.0;
+
+  // Answer choices, and the number key for each
+  static const double _choiceFontSize = 22.0;
+  static const double _choiceNumberFontSize = 16.0;
 
   static TextStyle questionAnswerTextTheme() {
     return const TextStyle(
@@ -52,6 +59,22 @@ class CustomAppTheme {
       fontFamily: _qaFontFamily,
       fontSize: _commentFontSize,
       color: _commentTextColor,
+    );
+  }
+
+  static TextStyle choiceTextTheme() {
+    return const TextStyle(
+      fontFamily: _qaFontFamily,
+      fontSize: _choiceFontSize,
+      color: _qaTextColor,
+    );
+  }
+
+  static TextStyle choiceNumberTextTheme() {
+    return const TextStyle(
+      fontFamily: _categoryFontFamily,
+      fontSize: _choiceNumberFontSize,
+      color: _detailTextColor,
     );
   }
 

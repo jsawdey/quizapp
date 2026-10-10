@@ -8,9 +8,9 @@ import 'package:quizapp/model/question.dart';
 import 'support/fakes.dart';
 
 void main() {
-  group('JeopardyQuestion', () {
+  group('Question', () {
     test('sanitize strips italics tags and backslashes', () {
-      expect(JeopardyQuestion.sanitize(r'<i>Moby-Dick</i> by \"Melville\"'),
+      expect(Question.sanitize(r'<i>Moby-Dick</i> by \"Melville\"'),
           'Moby-Dick by "Melville"');
     });
 
@@ -37,6 +37,33 @@ void main() {
       expect(fakeQuestion('1', value: 200, airDate: DateTime(2015)).boardRow, isNull);
       expect(fakeQuestion('1', round: 1, value: null, airDate: DateTime(2015)).boardRow,
           isNull);
+    });
+
+    test('format follows the choices', () {
+      expect(fakeQuestion('1').format, QuestionFormat.open);
+      expect(fakeQuestion('1', answer: 'Paris', choices: ['Lyon', 'Paris', 'Nice']).format,
+          QuestionFormat.multipleChoice);
+      expect(fakeQuestion('1', answer: 'False', choices: ['True', 'False']).format,
+          QuestionFormat.trueFalse);
+      expect(fakeQuestion('1', answer: 'Yes', choices: ['Yes', 'No']).format,
+          QuestionFormat.multipleChoice);
+    });
+
+    test('choices must hold the answer once, among at least two', () {
+      expect(Question.validChoices(['A', 'B'], 'A'), isTrue);
+      expect(Question.validChoices(['A', 'B'], 'C'), isFalse);
+      expect(Question.validChoices(['A'], 'A'), isFalse);
+      expect(Question.validChoices(['A', 'B', 'A'], 'A'), isFalse);
+      expect(() => fakeQuestion('1', answer: 'C', choices: ['A', 'B']),
+          throwsArgumentError);
+    });
+
+    test('choices keep their order and can\'t be changed', () {
+      final choices = ['B', 'A', 'C'];
+      final q = fakeQuestion('1', answer: 'A', choices: choices);
+      choices.add('D');
+      expect(q.choices, ['B', 'A', 'C']);
+      expect(() => q.choices!.add('E'), throwsUnsupportedError);
     });
 
     test('isFinalJeopardy is true only for round 3', () {
@@ -86,6 +113,33 @@ void main() {
       expect(const QuestionFilter(boardRows: {4, 5}).hashCode,
           const QuestionFilter(boardRows: {5, 4}).hashCode);
       expect(const QuestionFilter(boardRows: {5}), isNot(QuestionFilter.any));
+    });
+
+    test('categories and difficulties match by name', () {
+      const filter = QuestionFilter(categories: {'Geography', 'Art'},
+          difficulties: {'easy', 'medium'});
+      expect(filter.matches(fakeQuestion('1', category: 'Art', difficulty: 'easy')), isTrue);
+      expect(filter.matches(fakeQuestion('1', category: 'History', difficulty: 'easy')),
+          isFalse);
+      expect(filter.matches(fakeQuestion('1', category: 'Art', difficulty: 'hard')), isFalse);
+      // Jeopardy clues have no difficulty.
+      expect(filter.matches(fakeQuestion('1', category: 'Art')), isFalse);
+      expect(const QuestionFilter(categories: {'Art'})
+          .matches(fakeQuestion('1', category: 'Art')), isTrue);
+    });
+
+    test('no categories and every difficulty are no filter', () {
+      expect(const QuestionFilter(categories: {}).normalized(), QuestionFilter.any);
+      expect(const QuestionFilter(difficulties: {'easy', 'medium', 'hard'}).normalized(),
+          QuestionFilter.any);
+      expect(const QuestionFilter(difficulties: {'hard'}).normalized(),
+          const QuestionFilter(difficulties: {'hard'}));
+      expect(const QuestionFilter(categories: {'A', 'B'}),
+          const QuestionFilter(categories: {'B', 'A'}));
+      expect(const QuestionFilter(categories: {'A', 'B'}).hashCode,
+          const QuestionFilter(categories: {'B', 'A'}).hashCode);
+      expect(const QuestionFilter(categories: {'A'}),
+          isNot(const QuestionFilter(difficulties: {'A'})));
     });
 
     test('filters with the same values are equal', () {

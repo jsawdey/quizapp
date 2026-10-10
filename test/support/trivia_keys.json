@@ -1,0 +1,70 @@
+[
+  {
+    "type": "multiple",
+    "category": "General Knowledge",
+    "question": "Rolex is a company that specializes in what type of product?",
+    "answer": "Watches",
+    "incorrect_answers": [
+      "Cars",
+      "Computers",
+      "Sports equipment"
+    ],
+    "key": "faa6fa673a4b42d5",
+    "choices": [
+      "Cars",
+      "Sports equipment",
+      "Computers",
+      "Watches"
+    ]
+  },
+  {
+    "type": "multiple",
+    "category": "Geography",
+    "question": "Which city is the capital of Switzerland?",
+    "answer": "Bern",
+    "incorrect_answers": [
+      "Zürich",
+      "Frankfurt",
+      "Wien"
+    ],
+    "key": "abf1c8e425dedc04",
+    "choices": [
+      "Zürich",
+      "Wien",
+      "Bern",
+      "Frankfurt"
+    ]
+  },
+  {
+    "type": "multiple",
+    "category": "Science & Nature",
+    "question": "What is the common name of the chemical compound \"dihydrogen monoxide\"?",
+    "answer": "Water",
+    "incorrect_answers": [
+      "Methane",
+      "Ammonia",
+      "Laughing Gas"
+    ],
+    "key": "5fbea8159f0e84ea",
+    "choices": [
+      "Laughing Gas",
+      "Water",
+      "Methane",
+      "Ammonia"
+    ]
+  },
+  {
+    "type": "boolean",
+    "category": "Science & Nature",
+    "question": "The Earth revolves around the Sun in one year.",
+    "answer": "True",
+    "incorrect_answers": [
+      "False"
+    ],
+    "key": "4af6d532be05b8a1",
+    "choices": [
+      "True",
+      "False"
+    ]
+  }
+]

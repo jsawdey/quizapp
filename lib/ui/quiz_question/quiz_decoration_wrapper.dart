@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:quizapp/ui/theme.dart';
 
 class QuizDecorationWrapper extends StatelessWidget {
   final Widget _widget;
@@ -10,7 +11,7 @@ class QuizDecorationWrapper extends StatelessWidget {
         decoration: BoxDecoration(
           border: Border.all(width: 8.0, color: Colors.black),
           borderRadius: const BorderRadius.all(Radius.circular(8.0)),
-          color: const Color(0xFF060CE9),
+          color: CustomAppTheme.boardBlue,
         ),
         padding: const EdgeInsets.all(4.0),
         alignment: Alignment.center,
