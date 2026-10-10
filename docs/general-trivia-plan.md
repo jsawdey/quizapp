@@ -10,6 +10,14 @@ questions, starting with the [Open Trivia Database](https://opentdb.com)
 It builds on the [web UI plan](web-ui-plan.md) and should come after it, so
 the new card mode is written once for phones and browsers.
 
+**Status:** commits 1 and 2 of §9 are done: the rename, and the model and UI
+for choices, difficulty and attribution, read from the `quizapp` API. Next is
+commit 3, capturing real OpenTDB responses. Two small departures from §2–§3:
+the seeded shuffle waits for the OpenTDB dialect (commit 4), the first source
+that needs it, because the `quizapp` API sends choices in display order; and
+"About questions" is a copyright button in the app bar, shown only when the
+source needs credit, since the app bar has no menu.
+
 ## 0. Why, and what's in the way
 
 **Why bother:**

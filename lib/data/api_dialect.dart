@@ -100,6 +100,12 @@ class QuizApiDialect extends ApiDialect {
     final clueText = Question.sanitize(clue).trim();
     final responseText = Question.sanitize(response).trim();
     if ('$key'.isEmpty || clueText.isEmpty || responseText.isEmpty) return null;
+    final choices = _choices(item['choices']);
+    // Choices that can't be offered would make an unanswerable question.
+    if (item['choices'] != null &&
+        (choices == null || !Question.validChoices(choices, responseText))) {
+      return null;
+    }
     final round = _int(item['round']);
     final value = _int(item['value']);
     final wager = _int(item['dd_wager']);
@@ -117,8 +123,24 @@ class QuizApiDialect extends ApiDialect {
       dailyDoubleWager: wager == 0 ? null : wager,
       categoryComment: _text(item['category_comment']),
       notes: _text(item['notes']),
+      choices: choices,
+      difficulty: _text(item['difficulty'])?.toLowerCase(),
       raw: item,
     );
+  }
+
+  /// The choices as sent, cleaned like the response; null unless every one
+  /// is non-empty text.
+  static List<String>? _choices(Object? value) {
+    if (value is! List) return null;
+    final choices = <String>[];
+    for (final choice in value) {
+      if (choice is! String) return null;
+      final text = Question.sanitize(choice).trim();
+      if (text.isEmpty) return null;
+      choices.add(text);
+    }
+    return choices;
   }
 
   static int? _int(Object? value) => value is int ? value : null;

@@ -243,6 +243,10 @@ Optional header: Authorization: Bearer <token>
   simple `SELECT`.
 - `count` is capped at 50 by the server. Unknown query parameters are ignored.
   Breaking changes go under `/v2`.
+- Added since: optional `choices` and `difficulty` per question, for
+  multiple-choice trivia ([general-trivia-plan.md](general-trivia-plan.md)
+  §5). The app skips a question whose `choices` don't include its
+  `response`.
 
 ## 8. `tool/serve_clues.py` (optional self-hosting)
 

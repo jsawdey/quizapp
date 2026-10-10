@@ -39,6 +39,33 @@ void main() {
           isNull);
     });
 
+    test('format follows the choices', () {
+      expect(fakeQuestion('1').format, QuestionFormat.open);
+      expect(fakeQuestion('1', answer: 'Paris', choices: ['Lyon', 'Paris', 'Nice']).format,
+          QuestionFormat.multipleChoice);
+      expect(fakeQuestion('1', answer: 'False', choices: ['True', 'False']).format,
+          QuestionFormat.trueFalse);
+      expect(fakeQuestion('1', answer: 'Yes', choices: ['Yes', 'No']).format,
+          QuestionFormat.multipleChoice);
+    });
+
+    test('choices must hold the answer once, among at least two', () {
+      expect(Question.validChoices(['A', 'B'], 'A'), isTrue);
+      expect(Question.validChoices(['A', 'B'], 'C'), isFalse);
+      expect(Question.validChoices(['A'], 'A'), isFalse);
+      expect(Question.validChoices(['A', 'B', 'A'], 'A'), isFalse);
+      expect(() => fakeQuestion('1', answer: 'C', choices: ['A', 'B']),
+          throwsArgumentError);
+    });
+
+    test('choices keep their order and can\'t be changed', () {
+      final choices = ['B', 'A', 'C'];
+      final q = fakeQuestion('1', answer: 'A', choices: choices);
+      choices.add('D');
+      expect(q.choices, ['B', 'A', 'C']);
+      expect(() => q.choices!.add('E'), throwsUnsupportedError);
+    });
+
     test('isFinalJeopardy is true only for round 3', () {
       expect(fakeQuestion('1', round: 3).isFinalJeopardy, isTrue);
       expect(fakeQuestion('1', round: 2).isFinalJeopardy, isFalse);

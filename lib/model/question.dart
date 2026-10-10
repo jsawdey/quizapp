@@ -1,6 +1,10 @@
 import 'package:intl/intl.dart';
 
-/// A single clue, independent of the source it came from.
+/// How a question is played: [open] questions are flip cards, the others
+/// offer [Question.choices] to pick from.
+enum QuestionFormat { open, multipleChoice, trueFalse }
+
+/// A single clue or trivia question, independent of the source it came from.
 ///
 /// Each [QuestionSource] parses its own data into this; the app's naming is
 /// kept, so [question] is the clue text and [answer] is the correct response.
@@ -23,13 +27,44 @@ class Question {
   final String? categoryComment;
   final String? notes;
 
+  /// Every option in display order, [answer] among them. Null for open
+  /// questions. Sources put them in order; the UI never shuffles.
+  final List<String>? choices;
+
+  /// How hard the source says the question is, such as `easy`, `medium` or
+  /// `hard`; null when it doesn't say.
+  final String? difficulty;
+
   /// The source's raw record, shown as-is by the info overlay.
   final Map<String, dynamic> raw;
 
+  /// Throws [ArgumentError] if [choices] is set and doesn't contain
+  /// [answer]; sources check [validChoices] first and skip such items.
   Question({required this.sourceId, required this.key,
     required this.question, required this.answer, required this.category,
     this.value, this.round, this.airDate, this.dailyDoubleWager,
-    this.categoryComment, this.notes, this.raw = const {}});
+    this.categoryComment, this.notes, List<String>? choices, this.difficulty,
+    this.raw = const {}})
+      : choices = choices == null ? null : List.unmodifiable(choices) {
+    if (choices != null && !validChoices(choices, answer)) {
+      throw ArgumentError.value(choices, 'choices',
+          'must be at least two different options, one of them the answer');
+    }
+  }
+
+  /// Whether [choices] can be offered for [answer]: at least two options, no
+  /// two the same, and [answer] one of them.
+  static bool validChoices(List<String> choices, String answer) =>
+      choices.length >= 2 && choices.toSet().length == choices.length &&
+      choices.contains(answer);
+
+  QuestionFormat get format {
+    final choices = this.choices;
+    if (choices == null) return QuestionFormat.open;
+    return choices.length == 2 && choices.toSet().containsAll(const ['True', 'False'])
+        ? QuestionFormat.trueFalse
+        : QuestionFormat.multipleChoice;
+  }
 
   bool get isFinalJeopardy => round == 3;
 

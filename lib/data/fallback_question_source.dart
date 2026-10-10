@@ -37,6 +37,10 @@ class FallbackQuestionSource extends QuestionSource {
   bool get supportsRemoteReport =>
       primary.supportsRemoteReport || fallback.supportsRemoteReport;
 
+  /// The credit for whichever source served the last question.
+  @override
+  String? get attribution => _usingFallback ? fallback.attribution : primary.attribution;
+
   /// Only filters both sources apply: one that worked on the primary and
   /// then failed on the fallback would look like a bug.
   @override

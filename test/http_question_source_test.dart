@@ -7,6 +7,7 @@ import 'package:http/testing.dart';
 import 'package:quizapp/data/api_dialect.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
+import 'package:quizapp/model/question.dart';
 
 import 'support/jservice_fixture.dart';
 import 'support/quizapp_fixture.dart';
@@ -111,6 +112,52 @@ void main() {
       expect(finalClue.dailyDoubleWager, isNull);
       expect(finalClue.categoryComment, isNull);
       expect(finalClue.notes, 'Tournament of Champions game 1.');
+    });
+
+    test('reads choices and difficulty when present', () {
+      final questions = dialect.parseRandom({
+        'namespace': 'opentdb',
+        'questions': [
+          {'key': 'a', 'category': 'Geography', 'clue': 'Capital of France?',
+            'response': 'Paris', 'choices': ['Lyon', 'Paris', 'Nice', 'Lille'],
+            'difficulty': 'Easy'},
+          {'key': 'b', 'category': 'Science', 'clue': 'Water boils at 100 °C at sea level.',
+            'response': 'True', 'choices': ['True', 'False'], 'difficulty': 'medium'},
+        ],
+      }, base);
+      expect(questions[0].choices, ['Lyon', 'Paris', 'Nice', 'Lille']);
+      expect(questions[0].difficulty, 'easy');
+      expect(questions[0].format, QuestionFormat.multipleChoice);
+      expect(questions[1].format, QuestionFormat.trueFalse);
+      expect(questions[1].value, isNull);
+      expect(questions[1].round, isNull);
+
+      // The Jeopardy sample has neither, so its clues stay open.
+      final clues = dialect.parseRandom(json.decode(quizApiRandomResponse), base);
+      expect(clues.map((q) => q.choices), [null, null]);
+      expect(clues.map((q) => q.difficulty), [null, null]);
+    });
+
+    test('skips questions whose choices can\'t be offered', () {
+      Map<String, dynamic> item(String key, Object? choices) => {'key': key,
+        'category': 'C', 'clue': 'Q', 'response': 'A', 'choices': choices};
+      final questions = dialect.parseRandom({
+        'questions': [
+          item('missing answer', ['B', 'C']),
+          item('one choice', ['A']),
+          item('repeated', ['A', 'B', 'A']),
+          item('not text', ['A', 2]),
+          item('blank', ['A', ' ']),
+          item('not a list', 'A,B'),
+          item('ok', ['<i>B</i>', 'A']),
+          {'key': 'null choices', 'category': 'C', 'clue': 'Q', 'response': 'A',
+            'choices': null, 'difficulty': ''},
+        ],
+      }, base);
+      expect(questions.map((q) => q.key), ['ok', 'null choices']);
+      expect(questions[0].choices, ['B', 'A']);
+      expect(questions[1].choices, isNull);
+      expect(questions[1].difficulty, isNull);
     });
 
     test('accepts integer keys and falls back to a host namespace', () {

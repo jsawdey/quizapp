@@ -117,6 +117,10 @@ class QuestionRepository {
   /// Where reports go, for the hide dialog.
   String get reportTarget => source.description;
 
+  /// The credit the current questions' license asks for; see
+  /// [QuestionSource.attribution].
+  String? get attribution => source.attribution;
+
   /// Whether questions are coming from the fallback source because the main
   /// one is unavailable.
   bool get usingFallback {

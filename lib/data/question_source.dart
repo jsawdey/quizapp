@@ -123,6 +123,11 @@ abstract class QuestionSource {
   /// The filters this source applies reliably. The app offers only these.
   Set<FilterKind> get supportedFilters => const {};
 
+  /// The credit the questions' license asks for, such as "Questions from
+  /// Open Trivia Database (opentdb.com), CC BY-SA 4.0". Shown in the app;
+  /// null when none is needed.
+  String? get attribution => null;
+
   /// Whether hiding [question] reports it to the backend too.
   bool canReport(Question question) => supportsRemoteReport;
 

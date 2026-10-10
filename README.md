@@ -67,6 +67,21 @@ if it is set to `local` it says the database is missing. With
 Questions you hide stay hidden across the local database and a `quizapp` API
 serving the same dataset.
 
+## Multiple-choice questions
+
+A question can come with answer choices. Then a button for each choice sits
+under the question (numbered, and picked with keys 1–4, on a keyboard).
+Picking one marks the right answer green and a wrong pick red. Tapping the
+card still shows the answer, for playing it as a flash card. The line under
+the category shows the question's difficulty when it has no dollar value.
+
+A `quizapp` API serves them by adding optional `choices` (every option in the
+order to show them, the response among them) and `difficulty` to a question.
+No source serves them yet; Open Trivia Database support is planned in
+[docs/general-trivia-plan.md](docs/general-trivia-plan.md). A source whose
+license asks for credit shows it in the raw data overlay and under the
+copyright button in the app bar.
+
 ## Filtering clues
 
 The filter button in the app bar (or F on a keyboard) picks which rounds to
@@ -169,7 +184,7 @@ Then open `http://<this computer>:8080/`.
   it, so the build refuses it. The app's files themselves don't need the
   token; they contain no clues.
 - **Keyboard:** Space or Enter flips the card, N or → loads the next clue, H
-  hides the clue, and F opens the filters.
+  hides the clue, F opens the filters, and 1–4 pick a choice.
 - Hidden clues are kept in the browser's storage, and reported to the server
   so every device stops seeing them.
 - **Personal use only**, as above: keep the server on your own network. Don't

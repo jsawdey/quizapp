@@ -30,6 +30,28 @@ class _FilterIntent extends Intent {
   const _FilterIntent();
 }
 
+/// Picks the choice at [index], from a number key.
+class _PickIntent extends Intent {
+  final int index;
+  const _PickIntent(this.index);
+}
+
+class _PickAction extends Action<_PickIntent> {
+  final bool Function(int index) enabled;
+  final void Function(int index) onInvoke;
+
+  _PickAction(this.enabled, this.onInvoke);
+
+  @override
+  bool isEnabled(_PickIntent intent) => enabled(intent.index);
+
+  @override
+  Object? invoke(_PickIntent intent) {
+    onInvoke(intent.index);
+    return null;
+  }
+}
+
 /// A keyboard shortcut's action. While [enabled] returns false the key isn't
 /// handled, so it still reaches a text field.
 class _ShortcutAction<T extends Intent> extends Action<T> {
@@ -63,6 +85,8 @@ class _QuizPageState extends State<QuizPage> {
   bool _loading = false;
   String? _error;
   bool _showAnswer = false;
+  /// The choice picked for a multiple-choice question; null until then.
+  String? _picked;
   bool _questionHidden = false;
   bool _showOverlay = false;
   /// Whether the error is a missing or rejected token the user can enter.
@@ -112,6 +136,7 @@ class _QuizPageState extends State<QuizPage> {
       setState(() {
         _current = question;
         _showAnswer = false;
+        _picked = null;
         _questionHidden = false;
         _showOverlay = false;
         _needsToken = false;
@@ -194,6 +219,16 @@ class _QuizPageState extends State<QuizPage> {
     setState(() => _showAnswer = !_showAnswer);
   }
 
+  void _pick(String choice) {
+    if (_picked != null) return;
+    setState(() => _picked = choice);
+  }
+
+  bool _canPick(int index) {
+    final choices = _current?.choices;
+    return choices != null && index < choices.length && _picked == null && !_loading;
+  }
+
   // The keyboard shortcuts only work while a question (or, for F, the
   // no-match message) is showing, so keys typed into the access token field
   // (shown instead of a question) reach it.
@@ -205,9 +240,13 @@ class _QuizPageState extends State<QuizPage> {
         () => _current != null && !_questionHidden && !_loading, _hideQuestion),
     _FilterIntent: _ShortcutAction<_FilterIntent>(
         () => _canFilter && (_current != null || _noMatch) && !_loading, _openFilters),
+    _PickIntent: _PickAction(_canPick, (index) => _pick(_current!.choices![index])),
   };
 
   bool get _canFilter => widget.repository.supportedFilters.isNotEmpty;
+
+  /// How many choices have a number key.
+  static const _pickKeys = 4;
 
   static const _shortcuts = <ShortcutActivator, Intent>{
     SingleActivator(LogicalKeyboardKey.space): _FlipIntent(),
@@ -216,6 +255,10 @@ class _QuizPageState extends State<QuizPage> {
     SingleActivator(LogicalKeyboardKey.arrowRight): _NextIntent(),
     SingleActivator(LogicalKeyboardKey.keyH): _HideIntent(),
     SingleActivator(LogicalKeyboardKey.keyF): _FilterIntent(),
+    SingleActivator(LogicalKeyboardKey.digit1): _PickIntent(0),
+    SingleActivator(LogicalKeyboardKey.digit2): _PickIntent(1),
+    SingleActivator(LogicalKeyboardKey.digit3): _PickIntent(2),
+    SingleActivator(LogicalKeyboardKey.digit4): _PickIntent(3),
   };
 
   Future<void> _hideQuestion() async {
@@ -262,20 +305,22 @@ class _QuizPageState extends State<QuizPage> {
     await _loadQuestion();
   }
 
-  /// The line under the category: the clue's value, or which round it is.
-  /// Daily Doubles play as regular clues, so they show their board value;
-  /// the wager is still in the raw data.
+  /// The line under the category: the clue's value, which round it is, or
+  /// else how hard the question is. Daily Doubles play as regular clues, so
+  /// they show their board value; the wager is still in the raw data.
   static String? _detailFor(Question question) {
     if (question.isFinalJeopardy) return 'FINAL JEOPARDY';
     final value = question.value;
-    return value == null || value == 0 ? null : _dollars.format(value);
+    if (value != null && value != 0) return _dollars.format(value);
+    return question.difficulty?.toUpperCase();
   }
 
   Widget _buildOverlay() {
     List<Widget> builder = [];
     builder.add(Positioned.fill(child: _buildQuestionBody()));
     if (_showOverlay) {
-      builder.add(Positioned.fill(child: QuestionOverlay(_current?.raw ?? const {})));
+      builder.add(Positioned.fill(child: QuestionOverlay(_current?.raw ?? const {},
+          attribution: widget.repository.attribution)));
     }
     return Stack(
       children: builder,
@@ -371,8 +416,20 @@ class _QuizPageState extends State<QuizPage> {
     );
   }
 
+  Future<void> _showAbout(String attribution) => showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('About questions'),
+          content: Text(attribution),
+          actions: <Widget>[
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
+          ],
+        ),
+      );
+
   Widget _buildQuestionBody() {
     final current = _current;
+    final choices = current?.choices;
     final canHide = current != null && !_questionHidden && !_loading;
     return Container(
       color: Colors.black87,
@@ -389,9 +446,19 @@ class _QuizPageState extends State<QuizPage> {
                       detail: _detailFor(current), comment: current.categoryComment)),
             ),
             Flexible(
-                flex: 4,
+                flex: choices == null ? 4 : 3,
                 child: _buildQuestionAnswerWidget(),
             ),
+            if (current != null && choices != null)
+              Flexible(
+                flex: 2,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                  child: ChoiceListWidget(choices: choices, answer: current.answer,
+                      picked: _picked, onPick: _pick,
+                      numbered: _hasKeyboard && choices.length <= _pickKeys),
+                ),
+              ),
             Flexible(
               flex: 1,
               child: Center(
@@ -417,6 +484,7 @@ class _QuizPageState extends State<QuizPage> {
   @override
   Widget build(BuildContext context) {
     // This method is rerun every time setState is called.
+    final attribution = widget.repository.attribution;
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
@@ -431,6 +499,9 @@ class _QuizPageState extends State<QuizPage> {
               ),
             ),
           if (_canFilter) _buildFilterButton(),
+          if (attribution != null && _current != null)
+            IconButton(icon: const Icon(Icons.copyright), tooltip: 'About questions',
+                onPressed: () => _showAbout(attribution)),
           IconButton(icon: const Icon(Icons.info), tooltip: 'Show raw data', onPressed: () {
             setState(() {
               _showOverlay = !_showOverlay;
@@ -449,7 +520,8 @@ class _QuizPageState extends State<QuizPage> {
         onPressed: _loading ? null : _loadQuestion,
         tooltip: _hasKeyboard
             ? 'Load Random Question (N). Space shows the response; H hides the question'
-                '${_canFilter ? '; F filters clues' : ''}.'
+                '${_canFilter ? '; F filters clues' : ''}'
+                '${_current?.choices != null ? '; 1–4 pick a choice' : ''}.'
             : 'Load Random Question',
         child: const Icon(Icons.refresh),
       ),

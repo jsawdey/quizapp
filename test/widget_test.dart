@@ -383,6 +383,192 @@ void main() {
     expect(find.byIcon(Icons.cloud_off), findsNothing);
   });
 
+  group('choices', () {
+    final capital = fakeQuestion('1', answer: 'Paris',
+        choices: ['Lyon', 'Paris', 'Nice', 'Lille'], difficulty: 'easy', value: null);
+    final boils = fakeQuestion('2', answer: 'True', choices: ['True', 'False'],
+        difficulty: 'medium', value: null);
+
+    Finder choice(String text) => find.widgetWithText(TextButton, text);
+    Color? background(WidgetTester tester, String text) => tester
+        .widget<TextButton>(choice(text)).style!.backgroundColor!.resolve({});
+
+    Future<void> pumpChoices(WidgetTester tester, {String? attribution}) async {
+      source = FakeQuestionSource([capital, boils, fakeQuestion('3')],
+          attribution: attribution);
+      await pumpApp(tester);
+    }
+
+    testWidgets('shows a button per choice and the difficulty', (WidgetTester tester) async {
+      await pumpChoices(tester);
+      expect(find.byType(ChoiceListWidget), findsOneWidget);
+      for (final text in ['Lyon', 'Paris', 'Nice', 'Lille']) {
+        expect(choice(text), findsOneWidget);
+      }
+      expect(find.text('EASY'), findsOneWidget);
+
+      // Without a keyboard there are no number labels.
+      expect(find.text('1'), findsNothing);
+    });
+
+    testWidgets('a wrong pick turns red, the answer green, and the buttons stop',
+        (WidgetTester tester) async {
+      await pumpChoices(tester);
+      final before = background(tester, 'Lyon');
+      await tester.tap(choice('Nice'));
+      await tester.pump();
+
+      expect(background(tester, 'Nice'), isNot(before));
+      expect(background(tester, 'Paris'), isNot(before));
+      expect(background(tester, 'Paris'), isNot(background(tester, 'Nice')));
+      expect(background(tester, 'Lyon'), before);
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      expect(find.byIcon(Icons.close), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp(r'^Paris\s+Right answer$')), findsOneWidget);
+      expect(find.bySemanticsLabel(RegExp(r'^Nice\s+Your pick, wrong$')), findsOneWidget);
+      for (final text in ['Lyon', 'Paris', 'Nice', 'Lille']) {
+        expect(tester.widget<TextButton>(choice(text)).onPressed, isNull);
+      }
+      // The card stays on the question.
+      expect(find.text('CLUE 1'), findsOneWidget);
+    });
+
+    testWidgets('a right pick shows only the tick', (WidgetTester tester) async {
+      await pumpChoices(tester);
+      await tester.tap(choice('Paris'));
+      await tester.pump();
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      expect(find.byIcon(Icons.close), findsNothing);
+    });
+
+    testWidgets('the next question starts unpicked; open questions have no choices',
+        (WidgetTester tester) async {
+      await pumpChoices(tester);
+      await tester.tap(choice('Paris'));
+      await tester.pump();
+
+      await tester.tap(find.byIcon(Icons.refresh));
+      await tester.pump();
+      expect(choice('True'), findsOneWidget);
+      expect(choice('False'), findsOneWidget);
+      expect(find.text('MEDIUM'), findsOneWidget);
+      expect(find.byIcon(Icons.check), findsNothing);
+      expect(tester.widget<TextButton>(choice('True')).onPressed, isNotNull);
+
+      await tester.tap(find.byIcon(Icons.refresh));
+      await tester.pump();
+      expect(find.byType(ChoiceListWidget), findsNothing);
+      expect(find.text('\$200'), findsOneWidget);
+    });
+
+    testWidgets('true or false sits side by side on a phone', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(360, 640);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await pumpChoices(tester);
+      // Four choices stack in one column on a narrow screen.
+      expect(tester.getTopLeft(choice('Lyon')).dx, tester.getTopLeft(choice('Paris')).dx);
+
+      await tester.tap(find.byIcon(Icons.refresh));
+      await tester.pump();
+      expect(tester.getTopLeft(choice('True')).dy, tester.getTopLeft(choice('False')).dy);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('four choices sit in two columns on a wide screen',
+        (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1024, 768);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await pumpChoices(tester);
+      expect(tester.getTopLeft(choice('Lyon')).dy, tester.getTopLeft(choice('Paris')).dy);
+      expect(tester.getTopLeft(choice('Nice')).dy, tester.getTopLeft(choice('Lille')).dy);
+      expect(tester.getTopLeft(choice('Nice')).dy,
+          greaterThan(tester.getTopLeft(choice('Lyon')).dy));
+    });
+
+    testWidgets('long choices fit on a small screen', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      final long = 'A choice that is much too long to fit on one line ' * 3;
+      source = FakeQuestionSource([fakeQuestion('1', answer: long,
+          choices: [long, 'B', 'C', 'D'])]);
+      await pumpApp(tester);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('tapping the card still reveals the answer', (WidgetTester tester) async {
+      await pumpChoices(tester);
+      await tester.tap(find.byType(QuestionAnswerWidget));
+      await tester.pump();
+      expect(find.text('PARIS'), findsOneWidget);
+      // Choosing is still possible.
+      expect(tester.widget<TextButton>(choice('Lyon')).onPressed, isNotNull);
+    });
+
+    testWidgets('number keys pick a choice', (WidgetTester tester) async {
+      await pumpChoices(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit3);
+      await tester.pump();
+      expect(find.byIcon(Icons.close), findsOneWidget);
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      // Only the first pick counts.
+      expect(await tester.sendKeyEvent(LogicalKeyboardKey.digit2), isFalse);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+      await tester.pump();
+      // True or false has no third choice.
+      expect(await tester.sendKeyEvent(LogicalKeyboardKey.digit3), isFalse);
+      await tester.sendKeyEvent(LogicalKeyboardKey.digit1);
+      await tester.pump();
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      expect(find.byIcon(Icons.close), findsNothing);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+      await tester.pump();
+      // An open question has no choices.
+      expect(await tester.sendKeyEvent(LogicalKeyboardKey.digit1), isFalse);
+    });
+
+    testWidgets('number labels show with a keyboard', (WidgetTester tester) async {
+      await pumpChoices(tester);
+      for (final number in ['1', '2', '3', '4']) {
+        expect(find.descendant(of: find.byType(ChoiceListWidget), matching: find.text(number)),
+            findsOneWidget);
+      }
+    }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
+    testWidgets('credits the source in the overlay and an About dialog',
+        (WidgetTester tester) async {
+      const credit = 'Questions from Open Trivia Database (opentdb.com), CC BY-SA 4.0';
+      await pumpChoices(tester, attribution: credit);
+
+      await tester.tap(find.byIcon(Icons.info));
+      await tester.pump();
+      expect(find.text(credit), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.info));
+      await tester.pump();
+
+      await tester.tap(find.byTooltip('About questions'));
+      await tester.pumpAndSettle();
+      expect(find.text('About questions'), findsOneWidget);
+      expect(find.text(credit), findsOneWidget);
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      expect(find.text(credit), findsNothing);
+    });
+
+    testWidgets('no About button when the source needs no credit',
+        (WidgetTester tester) async {
+      await pumpChoices(tester);
+      expect(find.byTooltip('About questions'), findsNothing);
+      await tester.tap(find.byIcon(Icons.info));
+      await tester.pump();
+      expect(find.byType(QuestionOverlay), findsOneWidget);
+    });
+  });
+
   group('filters', () {
     const all = {FilterKind.round, FilterKind.airDate, FilterKind.boardRow};
     final nineties = QuestionFilter(from: DateTime(1990), to: DateTime(1999, 12, 31));

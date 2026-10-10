@@ -4,12 +4,13 @@ import 'package:quizapp/model/question.dart';
 
 Question fakeQuestion(String key, {String sourceId = 'fake',
     int? round, DateTime? airDate, int? value = 200, int? dailyDoubleWager,
-    String? category, String? categoryComment}) =>
+    String? category, String? categoryComment, String? answer,
+    List<String>? choices, String? difficulty}) =>
     Question(sourceId: sourceId, key: key, question: 'Clue $key',
-        answer: 'Response $key', category: category ?? 'Category $key',
+        answer: answer ?? 'Response $key', category: category ?? 'Category $key',
         value: value, round: round, airDate: airDate,
         dailyDoubleWager: dailyDoubleWager, categoryComment: categoryComment,
-        raw: {'key': key});
+        choices: choices, difficulty: difficulty, raw: {'key': key});
 
 /// Serves [questions] in order, round and round, or throws [error] if set.
 class FakeQuestionSource extends QuestionSource {
@@ -20,6 +21,8 @@ class FakeQuestionSource extends QuestionSource {
   final bool supportsRemoteReport;
   @override
   final Set<FilterKind> supportedFilters;
+  @override
+  final String? attribution;
   Object? reportError;
 
   /// The filter randomQuestion was last called with.
@@ -34,7 +37,7 @@ class FakeQuestionSource extends QuestionSource {
   final List<Question> reported = [];
 
   FakeQuestionSource(this.questions, {this.supportsRemoteReport = false,
-    this.supportedFilters = const {}});
+    this.supportedFilters = const {}, this.attribution});
 
   @override
   String get description => 'fake source';
