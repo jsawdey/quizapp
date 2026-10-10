@@ -18,6 +18,8 @@ and over.
 - Choose a **range of years**, such as "1990 to 1999" or "2015 to now".
 - Keep both between launches, see in the app bar when a filter is on, and
   clear it in one tap.
+- Afterwards, as a follow-up commit: choose a **difficulty**, meaning the
+  clue's row on the board, from 1 (top) to 5 (bottom). See §8.
 
 Years are as fine-grained as the picker goes. Day-level dates add a lot of UI
 and little value for play. The model already takes `DateTime`s, so finer
@@ -243,7 +245,98 @@ check what reached the source.
 `flutter analyze`, `flutter test`, `python3 -m unittest discover tool` and
 `flutter build web` must pass at every commit.
 
-## 8. Suggested commit order
+## 8. Follow-up: difficulty by board row
+
+This comes after the main feature (§9, commit 6). It adds a **Difficulty**
+section to the sheet with five chips, row 1 (top of the board, easiest) to
+row 5 (bottom, hardest).
+
+**Why rows, not dollar amounts.** Clue values doubled on 2001-11-26 (the
+last game at the old values aired 2001-11-23), and Double Jeopardy doubles
+them again. So the same amount sits on different rows:
+
+| Value | Jeopardy, before 2001 | Double Jeopardy, before 2001 | Jeopardy, 2001 on | Double Jeopardy, 2001 on |
+|---|---|---|---|---|
+| $400 | row 4 | row 2 | row 2 | row 1 |
+| $1,000 | — | row 5 | row 5 | — |
+
+A dollar range would mean "hard" in one era and "middle of the board" in
+another. A row means the same thing everywhere.
+
+**The data supports it.** A clue's row is its value divided by the round's
+base: $100 for Jeopardy before 2001-11-26, $200 for Double Jeopardy before
+then and for Jeopardy since, and $400 for Double Jeopardy since. Measured on
+the real `clues.db`, every Jeopardy and Double Jeopardy clue works out to a
+row from 1 to 5, with none left over. Each row holds 104,640–108,672 clues.
+Row 5 has the fewest, probably because the bottom row most often runs out of
+time before every clue is revealed. Daily Doubles keep their board value, so
+they have a row too (mostly rows 3–5). No new column, index or schema bump is
+needed.
+
+**Final Jeopardy has no row.** Its value is stored as 0. The row filter only
+narrows Jeopardy and Double Jeopardy clues; Final Jeopardy clues pass it
+whenever their round is selected. "Rows 4–5 plus Final Jeopardy" then means
+what it says. When Final Jeopardy is the only round selected, the Difficulty
+section is greyed out with "Final Jeopardy has no board row".
+
+**Model and filter.**
+
+- `JeopardyQuestion.boardRow` (`int?`): computed from `value`, `round` and
+  `airDate`. It is null for Final Jeopardy, when any of the three is missing,
+  or when the value doesn't divide into a row from 1 to 5. The era boundary
+  is one constant, `valuesDoubledOn = DateTime(2001, 11, 26)`, next to the
+  model.
+- `QuestionFilter.boardRows` (`Set<int>?`). `matches()` lets Final Jeopardy
+  through and otherwise requires `boardRows.contains(q.boardRow)`. It joins
+  `==`, `hashCode`, the §4 normalisation (all five rows is `null`) and the
+  `FilterStore` JSON (`"rows":[4,5]`). A saved filter without `rows` reads as
+  any row.
+- `FilterKind.boardRow`. `LocalQuestionSource` and `QuizApiDialect` add it;
+  jService doesn't (its clues have no round, so no row).
+
+**SQL (`LocalQuestionSource` and `serve_clues.py`).** One shared expression:
+
+```sql
+-- base: 100, 200 or 400 depending on round and era
+CASE c.round WHEN 1 THEN 100 ELSE 200 END
+  * CASE WHEN g.air_date >= '2001-11-26' THEN 2 ELSE 1 END
+-- condition:
+(c.round = 3 OR (c.value % base = 0 AND c.value / base IN (?, …)))
+```
+
+Rows are spread evenly through every game, so the pick from §2 stays fast
+and fair. With this condition, picks for row 5 alone and for rows 1–2 took
+about 0.01 ms each and returned 300 different clues in 300 picks.
+
+**API (`quizapp` v1, additive).** `GET /v1/random` takes `row=1,2,…`.
+`serve_clues.py` rejects anything outside 1–5 with 400, like `round`.
+`QuizApiDialect` sends the rows sorted. An older server ignores the
+unknown parameter (`parse_random_query` ignores unknown parameters), but
+`HttpQuestionSource` still checks `filter.matches()` on each question it
+buffers, so the filter holds. Requests just take more batches, because
+dropped questions have to be replaced. Update the API line in
+`serve_clues.py`'s docstring and the README.
+
+**Sheet.** In the Difficulty section, chips 1–5 with "1 = top row, 5 =
+bottom row" under them. As with rounds, the last selected chip can't be
+turned off. The app bar tooltip adds "rows 4–5".
+
+**General trivia.** OpenTDB's easy/medium/hard (general trivia plan §6)
+becomes its own `FilterKind.difficulty`, not a mapping onto rows. The sheet
+has one "Difficulty" section and shows whichever kind the source supports.
+
+**Tests.**
+
+| File | Checks |
+|---|---|
+| `test/question_test.dart` | `boardRow` for each round on both sides of 2001-11-26; null for Final Jeopardy, a missing value or date, and odd values |
+| `test/local_question_source_test.dart` | Fixture with clues on both sides of the boundary: only the chosen rows come back; Final Jeopardy passes when its round is on; rows combined with a date range |
+| `test/local_question_source_real_db_test.dart` | Every non-Final clue has a row from 1 to 5; 200 picks for row 5 give at least 150 distinct clues |
+| `tool/test_serve_clues.py` | `row=` parsing and the 400; the same row results as the Dart version for shared test clues |
+| `test/http_question_source_test.dart` | `row` in the `quizapp` URL; client-side row filtering when an old server ignores it |
+| `test/filter_store_test.dart`, `test/widget_test.dart` | `rows` round trip and normalisation; the section, the last-chip rule, greyed out for Final Jeopardy only, tooltip text |
+
+## 9. Suggested commit order
 
 1. **Fair random picks under filters.** §2 in `LocalQuestionSource`,
    `serve_clues.py` and `build_clue_db.py`, plus their tests. This needs no
@@ -256,10 +349,15 @@ check what reached the source.
    as for the web UI). Set a filter, reload, see it kept, and get a clue from
    the range. Then pick an empty range and use Clear filters.
 
-Commits 1–4 are the feature. Commit 1 is worth landing even if the rest
-slips.
+6. **Difficulty by board row** (§8): `boardRow`, `QuestionFilter.boardRows`,
+   the SQL in both places, the `row` API parameter, the sheet section and
+   tests. This is a separate commit after the main feature has landed, so
+   it can be reviewed and tried on its own.
 
-## 9. Risks and open questions
+Commits 1–4 are the feature. Commit 1 is worth landing even if the rest
+slips. Commit 6 is the planned follow-up.
+
+## 10. Risks and open questions
 
 - **The id order is an assumption about the data.** §2 makes the builder
   guarantee it and a test check it. If it ever breaks, picks stay correct,
@@ -275,11 +373,14 @@ slips.
 - **Hidden clues under a narrow filter.** With fair picks, the repository's
   20 tries only run out when nearly every matching clue is hidden. That's the
   right time to say so. The no-match state then offers to change the filter.
-- **Open:** should the filters also offer clue value ($200–$2000)? The data
-  supports it, but values doubled in 2001, so a value range means different
-  things in different years. Leave it out unless you want it.
-- **Open:** should Daily Doubles be a filter? Same answer: easy to add later
-  as another `FilterKind`.
+- **The 2001 value change is hard-coded** for board rows (§8), in Dart and
+  in Python. Values haven't changed since, and a shared test vector keeps
+  the two copies in step. If they ever change again, it becomes a list of
+  dates, which only touches the base calculation.
+- **Decided:** no dollar-value filter. Board rows (§8) cover it in a way that
+  means the same thing in every era.
+- **Open:** should Daily Doubles be a filter? Easy to add later as another
+  `FilterKind`.
 - **Next after this:** general trivia and multiple choice
   ([general-trivia-plan.md](general-trivia-plan.md)). Its §6 filter fields
   (category, difficulty) slot into `FilterKind` and the sheet this plan adds.
