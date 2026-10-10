@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:quizapp/controller/question_repository.dart';
 import 'package:quizapp/data/fallback_question_source.dart';
+import 'package:quizapp/data/filter_store.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
@@ -352,5 +353,152 @@ void main() {
         withSource: FallbackQuestionSource(primary: primary, fallback: fallback));
     expect(find.text('CLUE API'), findsOneWidget);
     expect(find.byIcon(Icons.cloud_off), findsNothing);
+  });
+
+  group('filters', () {
+    const both = {FilterKind.round, FilterKind.airDate};
+    final nineties = QuestionFilter(from: DateTime(1990), to: DateTime(1999, 12, 31));
+    late InMemoryFilterStore store;
+
+    setUp(() {
+      source = FakeQuestionSource([fakeQuestion('1'), fakeQuestion('2')],
+          supportedFilters: both);
+      store = InMemoryFilterStore();
+    });
+
+    Future<void> pumpFiltered(WidgetTester tester) async {
+      await tester.pumpWidget(QuizApp(repository: QuestionRepository(
+          source: source, hiddenStore: hidden, filterStore: store)));
+      await tester.pump();
+    }
+
+    Future<void> openSheet(WidgetTester tester) async {
+      await tester.tap(find.byIcon(store.filter.isAny
+          ? Icons.filter_alt_outlined : Icons.filter_alt));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> apply(WidgetTester tester) async {
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+    }
+
+    FilterChip chip(WidgetTester tester, String label) =>
+        tester.widget<FilterChip>(find.widgetWithText(FilterChip, label));
+
+    testWidgets('no button when the source supports no filters', (WidgetTester tester) async {
+      source = FakeQuestionSource([fakeQuestion('1')]);
+      await pumpFiltered(tester);
+      expect(find.byIcon(Icons.filter_alt_outlined), findsNothing);
+      expect(find.byIcon(Icons.filter_alt), findsNothing);
+    });
+
+    testWidgets('applying a filter saves it and loads a matching question',
+        (WidgetTester tester) async {
+      await pumpFiltered(tester);
+      expect(find.text('CLUE 1'), findsOneWidget);
+      expect(find.byTooltip('Filter clues'), findsOneWidget);
+
+      await openSheet(tester);
+      expect(find.text('Any year'), findsOneWidget);
+      await tester.tap(find.text('Final Jeopardy!'));
+      await tester.pump();
+      await apply(tester);
+
+      expect(store.filter, const QuestionFilter(rounds: {1, 2}));
+      expect(source.lastFilter, const QuestionFilter(rounds: {1, 2}));
+      expect(find.text('CLUE 2'), findsOneWidget);
+      expect(find.byIcon(Icons.filter_alt), findsOneWidget);
+      expect(find.byTooltip('Filters: Jeopardy!, Double Jeopardy!'), findsOneWidget);
+    });
+
+    testWidgets('applying the same filter changes nothing', (WidgetTester tester) async {
+      store.filter = nineties;
+      await pumpFiltered(tester);
+      expect(source.lastFilter, nineties);
+      expect(find.byTooltip('Filters: 1990–1999'), findsOneWidget);
+      await openSheet(tester);
+      expect(find.text('1990–1999'), findsOneWidget);
+      await apply(tester);
+      expect(find.text('CLUE 1'), findsOneWidget);
+    });
+
+    testWidgets('closing the sheet without Apply changes nothing', (WidgetTester tester) async {
+      await pumpFiltered(tester);
+      await openSheet(tester);
+      await tester.tap(find.text('Final Jeopardy!'));
+      await tester.pump();
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+      expect(store.filter, QuestionFilter.any);
+      expect(find.text('CLUE 1'), findsOneWidget);
+    });
+
+    testWidgets('the last round can\'t be turned off', (WidgetTester tester) async {
+      await pumpFiltered(tester);
+      await openSheet(tester);
+      await tester.tap(find.text('Jeopardy!'));
+      await tester.tap(find.text('Double Jeopardy!'));
+      await tester.pump();
+      expect(chip(tester, 'Final Jeopardy!').onSelected, isNull);
+      expect(chip(tester, 'Jeopardy!').onSelected, isNotNull);
+      await apply(tester);
+      expect(store.filter, const QuestionFilter(rounds: {3}));
+    });
+
+    testWidgets('Reset goes back to any filter', (WidgetTester tester) async {
+      store.filter = QuestionFilter(rounds: const {3}, from: DateTime(2001));
+      await pumpFiltered(tester);
+      await openSheet(tester);
+      expect(chip(tester, 'Jeopardy!').selected, isFalse);
+      expect(find.text('2001–${DateTime.now().year}'), findsOneWidget);
+      await tester.tap(find.text('Reset'));
+      await tester.pump();
+      expect(chip(tester, 'Jeopardy!').selected, isTrue);
+      expect(find.text('Any year'), findsOneWidget);
+      await apply(tester);
+      expect(store.filter, QuestionFilter.any);
+      expect(find.byIcon(Icons.filter_alt_outlined), findsOneWidget);
+    });
+
+    testWidgets('the sheet fits on a small screen', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      await pumpFiltered(tester);
+      await openSheet(tester);
+      expect(tester.takeException(), isNull);
+      await apply(tester);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the sheet only offers what the source supports', (WidgetTester tester) async {
+      source = FakeQuestionSource([fakeQuestion('1')], supportedFilters: {FilterKind.airDate});
+      await pumpFiltered(tester);
+      await openSheet(tester);
+      expect(find.text('Years'), findsOneWidget);
+      expect(find.byType(FilterChip), findsNothing);
+    });
+
+    testWidgets('with no match, offers to change or clear the filters',
+        (WidgetTester tester) async {
+      store.filter = nineties;
+      source.error = const NoQuestionFound();
+      await pumpFiltered(tester);
+      expect(find.text('No clues match your filters.'), findsOneWidget);
+      expect(find.text('Retry'), findsNothing);
+
+      await tester.tap(find.text('Change filters'));
+      await tester.pumpAndSettle();
+      expect(find.text('Filter clues'), findsOneWidget);
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+
+      source.error = null;
+      await tester.tap(find.text('Clear filters'));
+      await tester.pumpAndSettle();
+      expect(store.filter, QuestionFilter.any);
+      expect(find.text('CLUE 1'), findsOneWidget);
+    });
   });
 }
