@@ -201,7 +201,7 @@ void main() {
       expect(keys, ['1', '2', '3', '4', '5', '6']);
       expect(requests, hasLength(1));
       expect(requests.single.url.queryParameters['count'],
-          '${HttpQuestionSource.batchSize}');
+          '${JServiceDialect().batchSize}');
     });
 
     test('refills in the background before the buffer runs out', () async {

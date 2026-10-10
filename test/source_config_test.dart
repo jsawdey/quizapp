@@ -104,6 +104,15 @@ void main() {
       expect(config.apiDialect, 'jservice');
     });
 
+    test('can read from Open Trivia Database', () {
+      final config = web(apiUrl: 'https://opentdb.com', apiDialect: 'opentdb');
+      expect(config.apiUrl, Uri.parse('https://opentdb.com'));
+      expect(config.apiDialect, 'opentdb');
+      expect(createQuestionSource(config), isA<HttpQuestionSource>()
+          .having((s) => s.dialect, 'dialect', isA<OpenTdbDialect>())
+          .having((s) => s.attribution, 'attribution', contains('Open Trivia Database')));
+    });
+
     test('rejects the local database', () {
       expect(() => web(source: 'local'), configError('isn\'t available in the browser'));
       expect(() => web(source: 'api_with_local_fallback'),

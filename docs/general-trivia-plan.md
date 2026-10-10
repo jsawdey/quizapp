@@ -10,11 +10,16 @@ questions, starting with the [Open Trivia Database](https://opentdb.com)
 It builds on the [web UI plan](web-ui-plan.md) and should come after it, so
 the new card mode is written once for phones and browsers.
 
-**Status:** commits 1–3 of §9 are done: the rename; the model and UI for
-choices, difficulty and attribution, read from the `quizapp` API; and real
-OpenTDB responses in `test/support/opentdb/`, which corrected §1, §4 and §10
-(see "Checked against the live API" in §4). Next is commit 4, the dialect.
-Two small departures from §2–§3:
+**Status:** commits 1–4 of §9 are done, so the feature works: the rename;
+the model and UI for choices, difficulty and attribution; real OpenTDB
+responses in `test/support/opentdb/`, which corrected §1, §4 and §10 (see
+"Checked against the live API" in §4); and `OpenTdbDialect`. Commits 5 and 6
+are optional. Commit 4 differs from §4 in two ways: codes 3 and 4 both get a
+new token (a new token has seen nothing, so `api_token.php?command=reset` is
+never needed), and only batch requests are paced, so the token request at
+startup doesn't hold up the first question. The code 1 cap waits for
+filters (§6), since without them every request draws on all 5,000+
+questions. Two small departures from §2–§3:
 the seeded shuffle waits for the OpenTDB dialect (commit 4), the first source
 that needs it, because the `quizapp` API sends choices in display order; and
 "About questions" is a copyright button in the app bar, shown only when the

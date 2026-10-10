@@ -16,11 +16,9 @@ class ApiCredentials {
 }
 
 /// Fetches questions from an HTTP API in batches and serves them from a
-/// buffer, refilling it in the background before it runs out.
+/// buffer, refilling it in the background before it runs out. The dialect
+/// sets the batch size, the pace and any session.
 class HttpQuestionSource extends QuestionSource {
-  static const batchSize = 10;
-  static const refillAt = 3;
-
   /// Batches to try before giving up on a filter the server can't apply.
   static const maxFetchesPerQuestion = 3;
 
@@ -30,19 +28,28 @@ class HttpQuestionSource extends QuestionSource {
   final Duration timeout;
   final http.Client _client;
   final bool _ownsClient;
+  final DateTime Function() _now;
+  final Future<void> Function(Duration) _delay;
 
   final Queue<Question> _buffer = Queue();
   QuestionFilter _bufferFilter = QuestionFilter.any;
   Future<void>? _refill;
   QuestionFilter? _refillFilter;
+  Future<void>? _session;
+  /// When the next batch may be requested, under [ApiDialect.minRequestInterval].
+  DateTime? _nextBatchAt;
 
   /// Sends [token], or whatever [credentials] holds when the request is made.
+  /// [now] and [delay] stand in for the clock in tests.
   HttpQuestionSource({required this.baseUrl, required this.dialect, String? token,
     ApiCredentials? credentials, this.timeout = const Duration(seconds: 8),
-    http.Client? client})
+    http.Client? client, DateTime Function()? now,
+    Future<void> Function(Duration)? delay})
       : credentials = credentials ?? ApiCredentials(token),
         _client = client ?? http.Client(),
-        _ownsClient = client == null;
+        _ownsClient = client == null,
+        _now = now ?? DateTime.now,
+        _delay = delay ?? Future<void>.delayed;
 
   String? get token => credentials.token;
 
@@ -54,6 +61,28 @@ class HttpQuestionSource extends QuestionSource {
 
   @override
   Set<FilterKind> get supportedFilters => dialect.supportedFilters;
+
+  @override
+  String? get attribution => dialect.attribution;
+
+  /// Starts the dialect's session, if it has one.
+  @override
+  Future<void> open() => _startSession();
+
+  /// Runs [ApiDialect.open], joining a run already in progress.
+  Future<void> _startSession() =>
+      _session ??= _openDialect().whenComplete(() => _session = null);
+
+  Future<void> _openDialect() async {
+    try {
+      await dialect.open(_getJson, baseUrl);
+    } on FormatException catch (e) {
+      throw SourceUnavailable('$description sent an unexpected response: ${e.message}');
+    }
+  }
+
+  Future<Object?> _getJson(Uri uri) async =>
+      json.decode(await _send(() => _client.get(uri, headers: _headers)));
 
   Map<String, String> get _headers {
     final token = this.token;
@@ -73,7 +102,7 @@ class HttpQuestionSource extends QuestionSource {
       while (_buffer.isNotEmpty) {
         final question = _buffer.removeFirst();
         if (filter.matches(question)) {
-          if (_buffer.length <= refillAt) _refillInBackground(filter);
+          if (_buffer.length <= dialect.refillAt) _refillInBackground(filter);
           return question;
         }
       }
@@ -99,20 +128,49 @@ class HttpQuestionSource extends QuestionSource {
     }).whenComplete(() => _refill = null);
   }
 
-  /// Fetches one batch into the buffer and returns how many questions it added.
+  /// Fetches one batch into the buffer and returns how many questions it
+  /// added. An expired session is started again once.
   Future<int> _fetchBatch(QuestionFilter filter) async {
-    final uri = dialect.randomUri(baseUrl, batchSize, filter);
-    final body = await _send(() => _client.get(uri, headers: _headers));
-    final List<Question> questions;
+    List<Question> questions;
     try {
-      questions = dialect.parseRandom(json.decode(body), baseUrl);
-    } on FormatException catch (e) {
-      throw SourceUnavailable('$description sent an unexpected response: ${e.message}');
+      questions = await _requestBatch(filter);
+    } on SessionExpired catch (e) {
+      debugPrint('$description: $e Starting a new session.');
+      await _startSession();
+      try {
+        questions = await _requestBatch(filter);
+      } on SessionExpired catch (e) {
+        throw SourceUnavailable('$description keeps refusing its session: ${e.message}');
+      }
     }
     // Drop the batch if the filter changed while it was in flight.
     if (filter != _bufferFilter) return 0;
     _buffer.addAll(questions);
     return questions.length;
+  }
+
+  Future<List<Question>> _requestBatch(QuestionFilter filter) async {
+    await _waitForTurn();
+    final uri = dialect.randomUri(baseUrl, dialect.batchSize, filter);
+    final body = await _send(() => _client.get(uri, headers: _headers));
+    try {
+      return dialect.parseRandom(json.decode(body), baseUrl);
+    } on FormatException catch (e) {
+      throw SourceUnavailable('$description sent an unexpected response: ${e.message}');
+    }
+  }
+
+  /// Waits until [ApiDialect.minRequestInterval] has passed since the last
+  /// batch request. Each caller books its slot before waiting, so a refill
+  /// and a fetch for a new filter still go out one interval apart.
+  Future<void> _waitForTurn() async {
+    final interval = dialect.minRequestInterval;
+    if (interval == Duration.zero) return;
+    final now = _now();
+    final next = _nextBatchAt;
+    final at = next == null || next.isBefore(now) ? now : next;
+    _nextBatchAt = at.add(interval);
+    if (at.isAfter(now)) await _delay(at.difference(now));
   }
 
   @override
@@ -139,6 +197,9 @@ class HttpQuestionSource extends QuestionSource {
       throw Unauthorized(token == null || token.isEmpty
           ? '$description needs an access token.'
           : '$description rejected the access token.');
+    }
+    if (response.statusCode == 429) {
+      throw SourceUnavailable(ApiDialect.busyMessage(description));
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw SourceUnavailable('$description returned HTTP ${response.statusCode}.');

@@ -59,6 +59,9 @@ flutter run --dart-define-from-file=config/question_source.json
     [docs/question-backend-plan.md](docs/question-backend-plan.md) (§7).
   - `jservice`: the original jService routes, as served by self-hosted copies
     and clones.
+  - `opentdb`: [Open Trivia Database](https://opentdb.com), with
+    `QUESTION_API_URL` set to `https://opentdb.com`. See
+    [General trivia](#general-trivia-open-trivia-database).
 - `QUESTION_API_TOKEN`: optional bearer token. It is compiled into the app.
 
 An app built without the clue database (for API use) leaves out its ~43 MB;
@@ -67,7 +70,27 @@ if it is set to `local` it says the database is missing. With
 Questions you hide stay hidden across the local database and a `quizapp` API
 serving the same dataset.
 
-## Multiple-choice questions
+## General trivia (Open Trivia Database)
+
+Set `QUESTION_SOURCE` to `api`, `QUESTION_API_URL` to `https://opentdb.com`
+and `QUESTION_API_DIALECT` to `opentdb` to play general trivia instead of
+Jeopardy clues: multiple choice and true or false, easy to hard, in
+categories from General Knowledge to Video Games. Its questions are licensed
+CC BY-SA 4.0, so unlike the clue database they aren't for personal use only;
+the app credits them under the copyright button in the app bar. It works in
+web builds too, since Open Trivia Database allows requests from any page.
+
+The app asks for a session token when it starts, so questions don't repeat
+until all of them (about 5,300) have been seen, then starts a new one. It
+fetches 50 at a time, at most one batch every 5 seconds, as the API asks.
+Questions you hide stay hidden on that device. There are no filters for it
+yet.
+
+`tool/capture_opentdb.py` saves fresh responses from the live API into
+`test/support/opentdb/`, which the dialect's tests read; rerun it and the
+tests if the API seems to have changed.
+
+### Multiple-choice questions
 
 A question can come with answer choices. Then a button for each choice sits
 under the question (numbered, and picked with keys 1–4, on a keyboard).
@@ -75,12 +98,12 @@ Picking one marks the right answer green and a wrong pick red. Tapping the
 card still shows the answer, for playing it as a flash card. The line under
 the category shows the question's difficulty when it has no dollar value.
 
-A `quizapp` API serves them by adding optional `choices` (every option in the
-order to show them, the response among them) and `difficulty` to a question.
-No source serves them yet; Open Trivia Database support is planned in
-[docs/general-trivia-plan.md](docs/general-trivia-plan.md). A source whose
-license asks for credit shows it in the raw data overlay and under the
-copyright button in the app bar.
+Open Trivia Database serves them, and so can a `quizapp` API, by adding
+optional `choices` (every option in the order to show them, the response
+among them) and `difficulty` to a question. A source whose license asks for
+credit shows it in the raw data overlay and under the copyright button in the
+app bar. The design is in
+[docs/general-trivia-plan.md](docs/general-trivia-plan.md).
 
 ## Filtering clues
 
@@ -94,8 +117,9 @@ filter is kept between launches. While a filter is on, the button is filled in
 and its tooltip says which filter it is. If no clue matches, the board offers
 to change or clear the filters.
 
-Filters work with the local database and the `quizapp` API. A jService API
-can't filter, so the button isn't shown for it, and with
+Filters work with the local database and the `quizapp` API. jService and
+Open Trivia Database APIs can't filter yet, so the button isn't shown for
+them, and with
 `api_with_local_fallback` the app only offers filters both sources support.
 The design is in [docs/filters-plan.md](docs/filters-plan.md).
 
