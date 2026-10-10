@@ -153,8 +153,8 @@ void main() {
     expect(find.text('Retry'), findsOneWidget);
   });
 
-  testWidgets('Labels Final Jeopardy and Daily Doubles, and shows the comment',
-      (WidgetTester tester) async {
+  testWidgets('Labels Final Jeopardy, shows Daily Doubles at their board value, '
+      'and shows the comment', (WidgetTester tester) async {
     source = FakeQuestionSource([
       fakeQuestion('1', round: 3, value: null, categoryComment: '(Alex: Think big.)'),
       fakeQuestion('2', round: 2, value: 1200, dailyDoubleWager: 2000),
@@ -166,7 +166,8 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.refresh));
     await tester.pump();
-    expect(find.text('DAILY DOUBLE'), findsOneWidget);
+    expect(find.text('\$1,200'), findsOneWidget);
+    expect(find.text('DAILY DOUBLE'), findsNothing);
     expect(find.text('(Alex: Think big.)'), findsNothing);
 
     await tester.tap(find.byIcon(Icons.refresh));

@@ -219,9 +219,10 @@ class _QuizPageState extends State<QuizPage> {
   }
 
   /// The line under the category: the clue's value, or which round it is.
+  /// Daily Doubles play as regular clues, so they show their board value;
+  /// the wager is still in the raw data.
   static String? _detailFor(JeopardyQuestion question) {
     if (question.isFinalJeopardy) return 'FINAL JEOPARDY';
-    if (question.dailyDoubleWager != null) return 'DAILY DOUBLE';
     final value = question.value;
     return value == null || value == 0 ? null : _dollars.format(value);
   }
