@@ -1,1 +1,18 @@
 flutter/ephemeral
+
+# Build output from running CMake inside this folder (by hand or through an
+# editor's CMake integration). `flutter build linux` writes to /build/ at the
+# project root instead, which the root .gitignore already covers.
+/build/
+/bundle/
+/intermediates_do_not_run/
+/plugins/
+CMakeCache.txt
+CMakeFiles/
+Makefile
+cmake_install.cmake
+install_manifest.txt
+compile_commands.json
+build.ninja
+.ninja_deps
+.ninja_log
