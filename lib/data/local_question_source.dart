@@ -39,6 +39,9 @@ class LocalQuestionSource extends QuestionSource {
   String get description => 'the clue database';
 
   @override
+  Set<FilterKind> get supportedFilters => const {FilterKind.round, FilterKind.airDate};
+
+  @override
   Future<void> open() async {
     if (_db != null) return;
     final db = await _openDatabase();

@@ -3,6 +3,15 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:quizapp/model/question.dart';
 
+/// The kinds of filter a source can apply; see [QuestionSource.supportedFilters].
+enum FilterKind {
+  /// [QuestionFilter.rounds].
+  round,
+
+  /// [QuestionFilter.from] and [QuestionFilter.to].
+  airDate,
+}
+
 /// Narrows which clues a source may return. Sources that can't filter on the
 /// server leave it to [QuestionFilter.matches].
 class QuestionFilter {
@@ -13,6 +22,13 @@ class QuestionFilter {
   const QuestionFilter({this.rounds, this.from, this.to});
 
   static const any = QuestionFilter();
+
+  /// This filter without the parts a source supporting only [kinds] can't
+  /// apply, so a filter saved under one source can't empty another.
+  QuestionFilter limitedTo(Set<FilterKind> kinds) => QuestionFilter(
+      rounds: kinds.contains(FilterKind.round) ? rounds : null,
+      from: kinds.contains(FilterKind.airDate) ? from : null,
+      to: kinds.contains(FilterKind.airDate) ? to : null);
 
   bool matches(JeopardyQuestion q) {
     final rounds = this.rounds;
@@ -72,6 +88,9 @@ abstract class QuestionSource {
   String get description;
 
   bool get supportsRemoteReport => false;
+
+  /// The filters this source applies reliably. The app offers only these.
+  Set<FilterKind> get supportedFilters => const {};
 
   /// Whether hiding [question] reports it to the backend too.
   bool canReport(JeopardyQuestion question) => supportsRemoteReport;

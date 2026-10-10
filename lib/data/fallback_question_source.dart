@@ -37,6 +37,12 @@ class FallbackQuestionSource extends QuestionSource {
   bool get supportsRemoteReport =>
       primary.supportsRemoteReport || fallback.supportsRemoteReport;
 
+  /// Only filters both sources apply: one that worked on the primary and
+  /// then failed on the fallback would look like a bug.
+  @override
+  Set<FilterKind> get supportedFilters =>
+      primary.supportedFilters.intersection(fallback.supportedFilters);
+
   /// Opens nothing up front: each source is opened the first time it's
   /// needed, so a build without a fallback database works while the primary
   /// does, and a primary that's down at launch doesn't stop the fallback.
