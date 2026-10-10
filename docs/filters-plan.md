@@ -270,7 +270,7 @@ the real `clues.db`, every Jeopardy and Double Jeopardy clue works out to a
 row from 1 to 5, with none left over. Each row holds 104,640–108,672 clues.
 Row 5 has the fewest, probably because the bottom row most often runs out of
 time before every clue is revealed. Daily Doubles keep their board value, so
-they have a row too (mostly rows 3–5). No new column, index or schema bump is
+they have a row too (mostly rows 3–5) and play as regular clues in it (§10). No new column, index or schema bump is
 needed.
 
 **Final Jeopardy has no row.** Its value is stored as 0. The row filter only
@@ -379,8 +379,13 @@ slips. Commit 6 is the planned follow-up.
   dates, which only touches the base calculation.
 - **Decided:** no dollar-value filter. Board rows (§8) cover it in a way that
   means the same thing in every era.
-- **Open:** should Daily Doubles be a filter? Easy to add later as another
-  `FilterKind`.
+- **Decided:** Daily Doubles play as regular clues and get no filter of
+  their own. Their stored value is their board slot, not the wager: in all
+  26,310 category columns with a Daily Double, no Daily Double shares a
+  value with another clue in its column. So the row filter (§8) treats them
+  like any clue in their row, and the card shows their board value instead
+  of "DAILY DOUBLE" (already done, separately from this plan). The wager
+  stays in `dailyDoubleWager` and the raw data.
 - **Next after this:** general trivia and multiple choice
   ([general-trivia-plan.md](general-trivia-plan.md)). Its §6 filter fields
   (category, difficulty) slot into `FilterKind` and the sheet this plan adds.
