@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:quizapp/controller/question_repository.dart';
 import 'package:quizapp/data/question_source.dart';
 import 'package:quizapp/model/question.dart';
+import 'package:quizapp/ui/filter_sheet.dart';
 import 'package:quizapp/ui/quiz_question/quiz_ui_library.dart';
 import 'package:quizapp/ui/theme.dart';
 
@@ -23,6 +24,10 @@ class _NextIntent extends Intent {
 
 class _HideIntent extends Intent {
   const _HideIntent();
+}
+
+class _FilterIntent extends Intent {
+  const _FilterIntent();
 }
 
 /// A keyboard shortcut's action. While [enabled] returns false the key isn't
@@ -62,6 +67,8 @@ class _QuizPageState extends State<QuizPage> {
   bool _showOverlay = false;
   /// Whether the error is a missing or rejected token the user can enter.
   bool _needsToken = false;
+  /// Whether the error is that no clue matches the chosen filter.
+  bool _noMatch = false;
   final _tokenController = TextEditingController();
   final _tokenFocus = FocusNode();
   /// Holds focus for the keyboard shortcuts.
@@ -108,13 +115,18 @@ class _QuizPageState extends State<QuizPage> {
         _questionHidden = false;
         _showOverlay = false;
         _needsToken = false;
+        _noMatch = false;
       });
     } on Unauthorized catch (e) {
       _showError(e.message, needsToken: widget.repository.canSetToken);
     } on SourceUnavailable catch (e) {
       _showError(e.message);
     } on NoQuestionFound catch (e) {
-      _showError(e.message);
+      if (widget.repository.filter.isAny) {
+        _showError(e.message);
+      } else {
+        _showError('No clues match your filters.', noMatch: true);
+      }
     } catch (e) {
       debugPrint('Could not load a question: $e');
       _showError('Something went wrong loading a question.');
@@ -123,12 +135,13 @@ class _QuizPageState extends State<QuizPage> {
     }
   }
 
-  void _showError(String message, {bool needsToken = false}) {
+  void _showError(String message, {bool needsToken = false, bool noMatch = false}) {
     if (!mounted) return;
     setState(() {
       _current = null;
       _error = message;
       _needsToken = needsToken;
+      _noMatch = noMatch;
     });
     // The page itself holds focus for the keyboard shortcuts, so the field's
     // autofocus wouldn't take; focus it once it's built.
@@ -151,20 +164,50 @@ class _QuizPageState extends State<QuizPage> {
     await _loadQuestion();
   }
 
+  Future<void> _openFilters() async {
+    final repository = widget.repository;
+    final chosen = await showFilterSheet(context,
+        current: repository.filter, supported: repository.supportedFilters);
+    if (chosen == null || !mounted) return;
+    await _applyFilter(chosen);
+  }
+
+  /// Uses [filter] and loads a question that matches it, since the one
+  /// showing may not. Does nothing if the filter didn't change.
+  Future<void> _applyFilter(QuestionFilter filter) async {
+    final repository = widget.repository;
+    if (filter.normalized().limitedTo(repository.supportedFilters) == repository.filter) {
+      return;
+    }
+    try {
+      await repository.setFilter(filter);
+    } catch (e) {
+      // It still applies until the app closes.
+      debugPrint('Could not save the filter: $e');
+    }
+    if (!mounted) return;
+    await _loadQuestion();
+  }
+
   void _toggleAnswer() {
     if (_current == null) return;
     setState(() => _showAnswer = !_showAnswer);
   }
 
-  // The keyboard shortcuts only work while a question is showing, so keys
-  // typed into the access token field (shown instead of a question) reach it.
+  // The keyboard shortcuts only work while a question (or, for F, the
+  // no-match message) is showing, so keys typed into the access token field
+  // (shown instead of a question) reach it.
   late final Map<Type, Action<Intent>> _shortcutActions = {
     _FlipIntent: _ShortcutAction<_FlipIntent>(() => _current != null, _toggleAnswer),
     _NextIntent: _ShortcutAction<_NextIntent>(
         () => _current != null && !_loading, _loadQuestion),
     _HideIntent: _ShortcutAction<_HideIntent>(
         () => _current != null && !_questionHidden && !_loading, _hideQuestion),
+    _FilterIntent: _ShortcutAction<_FilterIntent>(
+        () => _canFilter && (_current != null || _noMatch) && !_loading, _openFilters),
   };
+
+  bool get _canFilter => widget.repository.supportedFilters.isNotEmpty;
 
   static const _shortcuts = <ShortcutActivator, Intent>{
     SingleActivator(LogicalKeyboardKey.space): _FlipIntent(),
@@ -172,6 +215,7 @@ class _QuizPageState extends State<QuizPage> {
     SingleActivator(LogicalKeyboardKey.keyN): _NextIntent(),
     SingleActivator(LogicalKeyboardKey.arrowRight): _NextIntent(),
     SingleActivator(LogicalKeyboardKey.keyH): _HideIntent(),
+    SingleActivator(LogicalKeyboardKey.keyF): _FilterIntent(),
   };
 
   Future<void> _hideQuestion() async {
@@ -219,9 +263,10 @@ class _QuizPageState extends State<QuizPage> {
   }
 
   /// The line under the category: the clue's value, or which round it is.
+  /// Daily Doubles play as regular clues, so they show their board value;
+  /// the wager is still in the raw data.
   static String? _detailFor(JeopardyQuestion question) {
     if (question.isFinalJeopardy) return 'FINAL JEOPARDY';
-    if (question.dailyDoubleWager != null) return 'DAILY DOUBLE';
     final value = question.value;
     return value == null || value == 0 ? null : _dollars.format(value);
   }
@@ -281,13 +326,19 @@ class _QuizPageState extends State<QuizPage> {
               ),
               const SizedBox(height: 16.0),
             ],
-            OutlinedButton(
-              style: OutlinedButton.styleFrom(
-                  foregroundColor: Colors.white,
-                  side: const BorderSide(color: Colors.white)),
-              onPressed: _needsToken ? _connect : _loadQuestion,
-              child: Text(_needsToken ? 'Connect' : 'Retry'),
-            ),
+            if (_noMatch)
+              Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 12.0,
+                runSpacing: 8.0,
+                children: <Widget>[
+                  _messageButton('Change filters', _openFilters),
+                  _messageButton('Clear filters', () => _applyFilter(QuestionFilter.any)),
+                ],
+              )
+            else
+              _messageButton(_needsToken ? 'Connect' : 'Retry',
+                  _needsToken ? _connect : _loadQuestion),
           ],
         ),
       ));
@@ -300,6 +351,24 @@ class _QuizPageState extends State<QuizPage> {
         Text('Loading questions…', style: CustomAppTheme.messageTextTheme()),
       ],
     ));
+  }
+
+  static Widget _messageButton(String label, VoidCallback onPressed) => OutlinedButton(
+        style: OutlinedButton.styleFrom(
+            foregroundColor: Colors.white,
+            side: const BorderSide(color: Colors.white)),
+        onPressed: onPressed,
+        child: Text(label),
+      );
+
+  Widget _buildFilterButton() {
+    final filter = widget.repository.filter;
+    return IconButton(
+      icon: Icon(filter.isAny ? Icons.filter_alt_outlined : Icons.filter_alt),
+      tooltip: filter.isAny ? 'Filter clues' : 'Filters: ${describeFilter(filter)}',
+      // A question loading now would be for the old filter.
+      onPressed: _loading ? null : _openFilters,
+    );
   }
 
   Widget _buildQuestionBody() {
@@ -361,6 +430,7 @@ class _QuizPageState extends State<QuizPage> {
                 child: Icon(Icons.cloud_off),
               ),
             ),
+          if (_canFilter) _buildFilterButton(),
           IconButton(icon: const Icon(Icons.info), tooltip: 'Show raw data', onPressed: () {
             setState(() {
               _showOverlay = !_showOverlay;
@@ -378,7 +448,8 @@ class _QuizPageState extends State<QuizPage> {
       floatingActionButton: FloatingActionButton(
         onPressed: _loading ? null : _loadQuestion,
         tooltip: _hasKeyboard
-            ? 'Load Random Question (N). Space shows the response; H hides the question.'
+            ? 'Load Random Question (N). Space shows the response; H hides the question'
+                '${_canFilter ? '; F filters clues' : ''}.'
             : 'Load Random Question',
         child: const Icon(Icons.refresh),
       ),

@@ -52,6 +52,9 @@ class HttpQuestionSource extends QuestionSource {
   @override
   bool get supportsRemoteReport => dialect.supportsReport;
 
+  @override
+  Set<FilterKind> get supportedFilters => dialect.supportedFilters;
+
   Map<String, String> get _headers {
     final token = this.token;
     return {

@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:quizapp/config/source_factory.dart';
 import 'package:quizapp/controller/question_repository.dart';
+import 'package:quizapp/data/filter_store.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/token_store.dart';
@@ -16,6 +17,7 @@ void main() {
     hiddenStore: kIsWeb ? SharedPrefsHiddenQuestionStore() : SqfliteHiddenQuestionStore(),
     tokenStore: kIsWeb ? SharedPrefsTokenStore() : null,
     credentials: credentials,
+    filterStore: SharedPrefsFilterStore(),
   );
   runApp(QuizApp(repository: repository));
 }

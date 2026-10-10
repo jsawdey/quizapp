@@ -18,7 +18,12 @@ class FakeQuestionSource extends QuestionSource {
   Object? openError;
   @override
   final bool supportsRemoteReport;
+  @override
+  final Set<FilterKind> supportedFilters;
   Object? reportError;
+
+  /// The filter randomQuestion was last called with.
+  QuestionFilter? lastFilter;
 
   /// When set, randomQuestion waits for it first.
   Future<void>? gate;
@@ -28,7 +33,8 @@ class FakeQuestionSource extends QuestionSource {
   int closes = 0;
   final List<JeopardyQuestion> reported = [];
 
-  FakeQuestionSource(this.questions, {this.supportsRemoteReport = false});
+  FakeQuestionSource(this.questions, {this.supportsRemoteReport = false,
+    this.supportedFilters = const {}});
 
   @override
   String get description => 'fake source';
@@ -42,6 +48,7 @@ class FakeQuestionSource extends QuestionSource {
 
   @override
   Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {
+    lastFilter = filter;
     final gate = this.gate;
     if (gate != null) await gate;
     final e = error;
@@ -68,7 +75,8 @@ class TokenGuardedSource extends FakeQuestionSource {
   final String token;
   int requests = 0;
 
-  TokenGuardedSource(super.questions, {required this.credentials, required this.token});
+  TokenGuardedSource(super.questions, {required this.credentials, required this.token,
+    super.supportedFilters});
 
   @override
   Future<JeopardyQuestion> randomQuestion({QuestionFilter filter = QuestionFilter.any}) async {

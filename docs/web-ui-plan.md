@@ -303,5 +303,6 @@ screenshot of the response.
 - **Next after this:** round and date filters. `QuestionFilter` is already
   wired through the repository, both dialects and the server, so it is mostly
   a settings sheet, and with the web UI in place it ships to both platforms
-  at once. General trivia and multiple choice have their own plan:
+  at once. Its plan is [filters-plan.md](filters-plan.md). General trivia
+  and multiple choice have their own plan:
   [general-trivia-plan.md](general-trivia-plan.md).

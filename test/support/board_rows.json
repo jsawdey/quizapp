@@ -1,0 +1,18 @@
+[
+  {"round": 1, "value": 100,  "air_date": "1984-09-10", "row": 1},
+  {"round": 1, "value": 300,  "air_date": "1995-03-01", "row": 3},
+  {"round": 1, "value": 500,  "air_date": "2001-11-23", "row": 5},
+  {"round": 1, "value": 200,  "air_date": "2001-11-23", "row": 2},
+  {"round": 1, "value": 200,  "air_date": "2001-11-26", "row": 1},
+  {"round": 1, "value": 1000, "air_date": "2020-05-01", "row": 5},
+  {"round": 1, "value": 300,  "air_date": "2020-05-01", "row": null},
+  {"round": 1, "value": 600,  "air_date": "1990-01-01", "row": null},
+  {"round": 1, "value": 0,    "air_date": "1990-01-01", "row": null},
+  {"round": 2, "value": 200,  "air_date": "1990-01-01", "row": 1},
+  {"round": 2, "value": 1000, "air_date": "2001-11-23", "row": 5},
+  {"round": 2, "value": 1000, "air_date": "2001-11-26", "row": null},
+  {"round": 2, "value": 400,  "air_date": "2001-11-26", "row": 1},
+  {"round": 2, "value": 1200, "air_date": "2015-06-01", "row": 3},
+  {"round": 2, "value": 2000, "air_date": "2015-06-01", "row": 5},
+  {"round": 3, "value": 0,    "air_date": "2015-06-01", "row": null}
+]

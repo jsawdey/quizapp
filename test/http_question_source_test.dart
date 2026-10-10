@@ -79,6 +79,8 @@ void main() {
       expect(filtered.path, '/v1/random');
       expect(filtered.queryParameters, {
         'count': '50', 'round': '1,2', 'from': '2001-02-03', 'to': '2010-12-31'});
+      expect(dialect.randomUri(base, 10, const QuestionFilter(boardRows: {5, 4}))
+          .queryParameters['row'], '4,5');
     });
 
     test('builds the report URL under the base path', () {
@@ -259,6 +261,18 @@ void main() {
           throwsA(isA<NoQuestionFound>()));
       expect(requests, hasLength(1));
       expect(requests.single.url.queryParameters['round'], '3');
+    });
+
+    test('a server that ignores row still only serves matching rows', () async {
+      // An older serve_clues.py ignores the row parameter and sends any clue:
+      // a 1984 Double Jeopardy $800 clue (row 4) and a Final Jeopardy clue.
+      final source = HttpQuestionSource(baseUrl: base, dialect: QuizApiDialect(),
+          client: MockClient((_) async => http.Response(quizApiRandomResponse, 200)));
+      final question = await source.randomQuestion(
+          filter: const QuestionFilter(boardRows: {1}));
+      expect(question.isFinalJeopardy, isTrue);
+      final row4 = await source.randomQuestion(filter: const QuestionFilter(boardRows: {4}));
+      expect(row4.answer, 'an elephant');
     });
 
     test('does not wait on a refill fetched for another filter', () async {

@@ -9,6 +9,9 @@ abstract class ApiDialect {
   /// Whether [randomUri] applies the filter on the server.
   bool get filtersOnServer => false;
 
+  /// The filters an [HttpQuestionSource] using this dialect applies reliably.
+  Set<FilterKind> get supportedFilters => const {};
+
   Uri randomUri(Uri base, int count, QuestionFilter filter);
 
   /// Parses a random-questions response. Items that don't parse are skipped;
@@ -46,14 +49,23 @@ class QuizApiDialect extends ApiDialect {
   @override
   bool get filtersOnServer => true;
 
+  /// Servers older than the `row` parameter ignore it, but [HttpQuestionSource]
+  /// still checks [QuestionFilter.matches], so the filter holds; it just
+  /// takes more batches.
+  @override
+  Set<FilterKind> get supportedFilters =>
+      const {FilterKind.round, FilterKind.airDate, FilterKind.boardRow};
+
   @override
   Uri randomUri(Uri base, int count, QuestionFilter filter) {
     final rounds = filter.rounds;
+    final boardRows = filter.boardRows;
     return ApiDialect.endpoint(base, 'v1/random', {
       'count': count.clamp(1, maxCount).toString(),
       if (rounds != null) 'round': (rounds.toList()..sort()).join(','),
       if (filter.from != null) 'from': isoDate(filter.from!),
       if (filter.to != null) 'to': isoDate(filter.to!),
+      if (boardRows != null) 'row': (boardRows.toList()..sort()).join(','),
     });
   }
 
@@ -124,6 +136,9 @@ class QuizApiDialect extends ApiDialect {
 
 /// The original jService API (`/api/random`, `/api/invalid`), as served by
 /// self-hosted copies of jService and clones that kept its routes.
+///
+/// It supports no filters: its clues have no round, and filtering dates on
+/// the client gives up after a few batches, so a narrow range fails.
 class JServiceDialect extends ApiDialect {
   static const maxCount = 100;
 
