@@ -39,7 +39,7 @@ void main() {
   testWidgets('Shows a question and toggles its answer', (WidgetTester tester) async {
     await pumpApp(tester);
 
-    expect(find.text('Random Trivia Question'), findsOneWidget);
+    expect(find.text('Trivia'), findsOneWidget);
     expect(find.text('CATEGORY 1'), findsOneWidget);
     expect(find.text('\$200'), findsOneWidget);
     expect(find.text('CLUE 1'), findsOneWidget);

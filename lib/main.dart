@@ -37,13 +37,13 @@ class QuizApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Random Trivia Question',
+      title: 'Trivia',
       theme: ThemeData(
         // This is the theme of your application.
         primarySwatch: Colors.blue,
         useMaterial3: false,
       ),
-      home: QuizPage(title: 'Random Trivia Question', repository: repository,
+      home: QuizPage(title: 'Trivia', repository: repository,
           sources: sources),
     );
   }

@@ -293,13 +293,12 @@ screenshot of the response.
   the API share an origin. That covers `serve_clues.py --web` and the dev
   proxy. Hosting the page elsewhere would need `Access-Control-*` handling,
   which isn't planned.
-- **Open:** the tab title and app name. `MaterialApp.title` is "Random Trivia
-  Question". The Android package has since become `com.sawdeydev.quizapp`
-  (it was `com.sawdeydev.jeopardyfun`), and the Android launcher label and
-  iOS display name are "Trivia", matching the web manifest's short name. The
-  iOS bundle ID is `com.sawdeydev.quizapp` too (it was
-  `com.sawdeydev.jeopardyFun`). The plan keeps the current title unless you'd
-  rather have a new one.
+- **Decided (later):** the tab title and app name are "Trivia", matching
+  the Android launcher label, the iOS display name and the web manifest's
+  short name. It was "Random Trivia Question", which no longer fit beside
+  the app bar's buttons on a phone. The Android package is
+  `com.sawdeydev.quizapp` (it was `com.sawdeydev.jeopardyfun`), and so is the
+  iOS bundle ID (it was `com.sawdeydev.jeopardyFun`).
 - **Next after this:** round and date filters. `QuestionFilter` is already
   wired through the repository, both dialects and the server, so it is mostly
   a settings sheet, and with the web UI in place it ships to both platforms
