@@ -244,17 +244,45 @@ void main() {
       expect(find.text('CLUE 1'), findsOneWidget);
     });
 
+    testWidgets('F opens the filter sheet, and keys work again after it closes',
+        (WidgetTester tester) async {
+      source = FakeQuestionSource([fakeQuestion('1'), fakeQuestion('2')],
+          supportedFilters: const {FilterKind.round, FilterKind.airDate});
+      await pumpApp(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyF);
+      await tester.pumpAndSettle();
+      expect(find.text('Filter clues'), findsOneWidget);
+      // Keys in the sheet don't reach the page.
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+      await tester.pump();
+      expect(find.text('CLUE 1'), findsOneWidget);
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+      expect(find.text('Filter clues'), findsNothing);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+      await tester.pump();
+      expect(find.text('CLUE 2'), findsOneWidget);
+    });
+
+    testWidgets('F does nothing when the source can\'t filter', (WidgetTester tester) async {
+      await pumpApp(tester);
+      expect(await tester.sendKeyEvent(LogicalKeyboardKey.keyF), isFalse);
+      await tester.pumpAndSettle();
+      expect(find.byType(BottomSheet), findsNothing);
+    });
+
     testWidgets('Typing a token doesn\'t trigger shortcuts', (WidgetTester tester) async {
       final credentials = ApiCredentials();
       final guarded = TokenGuardedSource([fakeQuestion('1'), fakeQuestion('2')],
-          credentials: credentials, token: 'nh');
+          credentials: credentials, token: 'nh',
+          supportedFilters: const {FilterKind.round, FilterKind.airDate});
       await tester.pumpWidget(QuizApp(repository: QuestionRepository(source: guarded,
           hiddenStore: hidden, tokenStore: InMemoryTokenStore(), credentials: credentials)));
       await tester.pump();
       await tester.showKeyboard(find.byType(TextField));
       // Unhandled, so in a browser the keys reach the text field.
       for (final key in [LogicalKeyboardKey.keyN, LogicalKeyboardKey.keyH,
-          LogicalKeyboardKey.space, LogicalKeyboardKey.enter]) {
+          LogicalKeyboardKey.keyF, LogicalKeyboardKey.space, LogicalKeyboardKey.enter]) {
         expect(await tester.sendKeyEvent(key), isFalse, reason: '$key');
       }
       await tester.pumpAndSettle();

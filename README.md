@@ -67,6 +67,20 @@ if it is set to `local` it says the database is missing. With
 Questions you hide stay hidden across the local database and a `quizapp` API
 serving the same dataset.
 
+## Filtering clues
+
+The filter button in the app bar (or F on a keyboard) picks which rounds to
+play (Jeopardy!, Double Jeopardy! and Final Jeopardy!) and a range of years
+the clues aired. Apply loads a matching clue straight away, and the filter is
+kept between launches. While a filter is on, the button is filled in and its
+tooltip says which filter it is. If no clue matches, the board offers to change
+or clear the filters.
+
+Filters work with the local database and the `quizapp` API. A jService API
+can't filter, so the button isn't shown for it, and with
+`api_with_local_fallback` the app only offers filters both sources support.
+The design is in [docs/filters-plan.md](docs/filters-plan.md).
+
 ## Serving questions from your own computer
 
 `tool/serve_clues.py` serves the clue database over the `quizapp` API, using
@@ -151,8 +165,8 @@ Then open `http://<this computer>:8080/`.
   `QUESTION_API_TOKEN` in a web build: anyone who loads the page could read
   it, so the build refuses it. The app's files themselves don't need the
   token; they contain no clues.
-- **Keyboard:** Space or Enter flips the card, N or → loads the next clue, and
-  H hides the clue.
+- **Keyboard:** Space or Enter flips the card, N or → loads the next clue, H
+  hides the clue, and F opens the filters.
 - Hidden clues are kept in the browser's storage, and reported to the server
   so every device stops seeing them.
 - **Personal use only**, as above: keep the server on your own network. Don't

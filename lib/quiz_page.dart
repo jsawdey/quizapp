@@ -26,6 +26,10 @@ class _HideIntent extends Intent {
   const _HideIntent();
 }
 
+class _FilterIntent extends Intent {
+  const _FilterIntent();
+}
+
 /// A keyboard shortcut's action. While [enabled] returns false the key isn't
 /// handled, so it still reaches a text field.
 class _ShortcutAction<T extends Intent> extends Action<T> {
@@ -190,15 +194,20 @@ class _QuizPageState extends State<QuizPage> {
     setState(() => _showAnswer = !_showAnswer);
   }
 
-  // The keyboard shortcuts only work while a question is showing, so keys
-  // typed into the access token field (shown instead of a question) reach it.
+  // The keyboard shortcuts only work while a question (or, for F, the
+  // no-match message) is showing, so keys typed into the access token field
+  // (shown instead of a question) reach it.
   late final Map<Type, Action<Intent>> _shortcutActions = {
     _FlipIntent: _ShortcutAction<_FlipIntent>(() => _current != null, _toggleAnswer),
     _NextIntent: _ShortcutAction<_NextIntent>(
         () => _current != null && !_loading, _loadQuestion),
     _HideIntent: _ShortcutAction<_HideIntent>(
         () => _current != null && !_questionHidden && !_loading, _hideQuestion),
+    _FilterIntent: _ShortcutAction<_FilterIntent>(
+        () => _canFilter && (_current != null || _noMatch) && !_loading, _openFilters),
   };
+
+  bool get _canFilter => widget.repository.supportedFilters.isNotEmpty;
 
   static const _shortcuts = <ShortcutActivator, Intent>{
     SingleActivator(LogicalKeyboardKey.space): _FlipIntent(),
@@ -206,6 +215,7 @@ class _QuizPageState extends State<QuizPage> {
     SingleActivator(LogicalKeyboardKey.keyN): _NextIntent(),
     SingleActivator(LogicalKeyboardKey.arrowRight): _NextIntent(),
     SingleActivator(LogicalKeyboardKey.keyH): _HideIntent(),
+    SingleActivator(LogicalKeyboardKey.keyF): _FilterIntent(),
   };
 
   Future<void> _hideQuestion() async {
@@ -420,7 +430,7 @@ class _QuizPageState extends State<QuizPage> {
                 child: Icon(Icons.cloud_off),
               ),
             ),
-          if (widget.repository.supportedFilters.isNotEmpty) _buildFilterButton(),
+          if (_canFilter) _buildFilterButton(),
           IconButton(icon: const Icon(Icons.info), tooltip: 'Show raw data', onPressed: () {
             setState(() {
               _showOverlay = !_showOverlay;
@@ -438,7 +448,8 @@ class _QuizPageState extends State<QuizPage> {
       floatingActionButton: FloatingActionButton(
         onPressed: _loading ? null : _loadQuestion,
         tooltip: _hasKeyboard
-            ? 'Load Random Question (N). Space shows the response; H hides the question.'
+            ? 'Load Random Question (N). Space shows the response; H hides the question'
+                '${_canFilter ? '; F filters clues' : ''}.'
             : 'Load Random Question',
         child: const Icon(Icons.refresh),
       ),

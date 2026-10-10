@@ -18,6 +18,7 @@ http://<this computer>:8080/.
 
 API (docs/question-backend-plan.md section 7):
     GET  /v1/random?count=10[&round=1,2][&from=YYYY-MM-DD][&to=YYYY-MM-DD]
+         (an empty "questions" list when nothing matches the filters)
     POST /v1/questions/{key}/report
 
 With --token, the API needs the bearer token but the web UI's files don't:
