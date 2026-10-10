@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert' show json;
 import 'dart:io';
+import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -153,11 +154,93 @@ void main() {
       expect(questions.map((q) => q.question), ['Q?']);
     });
 
-    test('credits Open Trivia Database and supports no filters or reports', () {
+    test('credits Open Trivia Database and supports no reports', () {
       expect(dialect.attribution, contains('CC BY-SA 4.0'));
-      expect(dialect.supportedFilters, isEmpty);
+      expect(dialect.supportedFilters, {FilterKind.category, FilterKind.difficulty});
       expect(dialect.supportsReport, isFalse);
       expect(apiDialects['opentdb']!(), isA<OpenTdbDialect>());
+    });
+  });
+
+  group('OpenTdbDialect filters', () {
+    late List<Uri> asked;
+    late OpenTdbDialect dialect;
+
+    /// Answers like the live API; every category counts as the saved one.
+    Future<Object?> get(Uri uri) async {
+      asked.add(uri);
+      return switch (uri.path) {
+        '/api_category.php' => fixtureJson('categories.json'),
+        '/api_count.php' => fixtureJson('count_small_pool.json'),
+        _ => throw StateError('unexpected $uri'),
+      };
+    }
+
+    setUp(() {
+      asked = [];
+      dialect = OpenTdbDialect(random: Random(1));
+    });
+
+    const musicals = 'Entertainment: Musicals & Theatres';
+
+    test('lists the categories alphabetically, asking once', () async {
+      final names = await dialect.filterCategories(get, base);
+      expect(names, hasLength(24));
+      expect(names.take(3), ['Animals', 'Art', 'Celebrities']);
+      expect(names, contains(musicals));
+      await dialect.filterCategories(get, base);
+      expect(asked, hasLength(1));
+    });
+
+    test('asks for no more than a small category holds', () async {
+      // Musicals & Theatres: 36 questions, 11 of them hard.
+      final filter = const QuestionFilter(categories: {musicals});
+      await dialect.prepare(get, base, filter);
+      expect(asked.map((u) => u.toString()), [
+        'https://opentdb.com/api_category.php',
+        'https://opentdb.com/api_count.php?category=13',
+      ]);
+      expect(dialect.randomUri(base, 50, filter).queryParameters,
+          {'amount': '36', 'category': '13', 'encode': 'url3986'});
+
+      const hard = QuestionFilter(categories: {musicals}, difficulties: {'hard'});
+      await dialect.prepare(get, base, hard);
+      // Counted already.
+      expect(asked, hasLength(2));
+      expect(dialect.randomUri(base, 50, hard).queryParameters,
+          {'amount': '11', 'category': '13', 'difficulty': 'hard', 'encode': 'url3986'});
+    });
+
+    test('draws from each category and difficulty by size', () async {
+      const filter = QuestionFilter(categories: {musicals, 'Art'},
+          difficulties: {'easy', 'medium'});
+      await dialect.prepare(get, base, filter);
+      final picks = <String>{};
+      for (var i = 0; i < 100; i++) {
+        final query = dialect.randomUri(base, 50, filter).queryParameters;
+        picks.add('${query['category']} ${query['difficulty']} ${query['amount']}');
+      }
+      // Art (25) counts as the saved Musicals & Theatres counts here.
+      expect(picks, {'13 easy 11', '13 medium 14', '25 easy 11', '25 medium 14'});
+    });
+
+    test('a difficulty alone needs no counts', () async {
+      const filter = QuestionFilter(difficulties: {'hard'});
+      await dialect.prepare(get, base, filter);
+      expect(asked, isEmpty);
+      expect(dialect.randomUri(base, 50, filter).queryParameters,
+          {'amount': '50', 'difficulty': 'hard', 'encode': 'url3986'});
+    });
+
+    test('an unknown or empty category is NoQuestionFound', () async {
+      const unknown = QuestionFilter(categories: {'Knitting'});
+      await dialect.prepare(get, base, unknown);
+      expect(() => dialect.randomUri(base, 50, unknown), throwsA(isA<NoQuestionFound>()));
+    });
+
+    test('a bad category list is a FormatException', () async {
+      await expectLater(dialect.filterCategories((_) async => {'nope': 1}, base),
+          throwsA(isA<FormatException>()));
     });
   });
 
@@ -265,6 +348,29 @@ void main() {
       await pumpEventQueue();
       expect(requests.where((u) => u.path == '/api.php'), hasLength(3));
       expect(waits, hasLength(1));
+    });
+
+    test('filters by category: counts it, then asks for what it holds', () async {
+      final source = sourceWith((uri) => switch (uri.path) {
+            '/api_token.php' => fixtureResponse('token_request.json'),
+            '/api_category.php' => fixtureResponse('categories.json'),
+            '/api_count.php' => fixtureResponse('count_small_pool.json'),
+            _ => fixtureResponse('random_small_pool.json'),
+          });
+      await source.open();
+      expect(await source.filterCategories(), contains('Entertainment: Musicals & Theatres'));
+      const filter = QuestionFilter(categories: {'Entertainment: Musicals & Theatres'},
+          difficulties: {'hard'});
+      final question = await source.randomQuestion(filter: filter);
+      expect(question.category, 'Entertainment: Musicals & Theatres');
+      expect(question.difficulty, 'hard');
+      expect(requests.map((u) => u.path),
+          ['/api_token.php', '/api_category.php', '/api_count.php', '/api.php']);
+      expect(requests.last.queryParameters['amount'], '11');
+      // Counted once per category.
+      await source.randomQuestion(filter: const QuestionFilter(
+          categories: {'Entertainment: Musicals & Theatres'}));
+      expect(requests.where((u) => u.path == '/api_count.php'), hasLength(1));
     });
 
     test('two batches asked for at once go out 5 seconds apart', () async {

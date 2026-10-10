@@ -1,4 +1,5 @@
 import 'dart:convert' show utf8;
+import 'dart:math';
 
 import 'package:crypto/crypto.dart';
 import 'package:quizapp/data/question_source.dart';
@@ -38,6 +39,14 @@ abstract class ApiDialect {
   /// opens and after [SessionExpired]; may throw [SourceUnavailable] or
   /// [FormatException].
   Future<void> open(ApiRequester get, Uri base) async {}
+
+  /// Gets what [randomUri] needs to apply [filter], such as how many
+  /// questions it matches. Called before the first batch for each filter.
+  Future<void> prepare(ApiRequester get, Uri base, QuestionFilter filter) async {}
+
+  /// The category names [QuestionFilter.categories] can choose from; see
+  /// [QuestionSource.filterCategories].
+  Future<List<String>> filterCategories(ApiRequester get, Uri base) async => const [];
 
   /// Whether [randomUri] applies the filter on the server.
   bool get filtersOnServer => false;
@@ -267,13 +276,29 @@ class JServiceDialect extends ApiDialect {
 /// docs/general-trivia-plan.md §4 and test/support/opentdb/.
 ///
 /// Its questions have no ids, so keys hash the text, and a session token
-/// keeps it from repeating questions. It supports no filters yet.
+/// keeps it from repeating questions.
+///
+/// A request takes one category and one difficulty, and fails outright if it
+/// asks for more questions than they hold. So for a filter with categories,
+/// [prepare] counts each one's questions, and each batch draws from one
+/// category and difficulty, picked in proportion to their size and asking
+/// for no more than it has.
 class OpenTdbDialect extends ApiDialect {
   static const maxCount = 50;
   static const sourceId = 'opentdb';
 
+  final Random _random;
+
   /// The session token, once [open] has got one.
   String? token;
+
+  /// Category ids by name, from `api_category.php`.
+  Map<String, int>? _categoryIds;
+
+  /// Questions per category id: by difficulty, and in all under `total`.
+  final Map<int, Map<String, int>> _counts = {};
+
+  OpenTdbDialect({Random? random}) : _random = random ?? Random();
 
   @override
   String get name => 'opentdb';
@@ -287,6 +312,53 @@ class OpenTdbDialect extends ApiDialect {
 
   @override
   String get attribution => 'Questions from Open Trivia Database (opentdb.com), CC BY-SA 4.0';
+
+  @override
+  bool get filtersOnServer => true;
+
+  @override
+  Set<FilterKind> get supportedFilters => const {FilterKind.category, FilterKind.difficulty};
+
+  /// The names in alphabetical order, which keeps "Entertainment: …" together.
+  @override
+  Future<List<String>> filterCategories(ApiRequester get, Uri base) async =>
+      (await _categories(get, base)).keys.toList()..sort();
+
+  Future<Map<String, int>> _categories(ApiRequester get, Uri base) async {
+    final known = _categoryIds;
+    if (known != null) return known;
+    final json = await get(ApiDialect.endpoint(base, 'api_category.php'));
+    final list = json is Map<String, dynamic> ? json['trivia_categories'] : null;
+    if (list is! List) throw const FormatException('Expected a "trivia_categories" list');
+    return _categoryIds = {
+      for (final item in list)
+        if (item is Map<String, dynamic> && item['id'] is int && item['name'] is String)
+          (item['name'] as String).trim(): item['id'] as int,
+    };
+  }
+
+  /// Counts the questions in each chosen category, once per category.
+  @override
+  Future<void> prepare(ApiRequester get, Uri base, QuestionFilter filter) async {
+    final categories = filter.categories;
+    if (categories == null) return;
+    final ids = await _categories(get, base);
+    for (final name in categories) {
+      final id = ids[name];
+      if (id == null || _counts.containsKey(id)) continue;
+      final json = await get(ApiDialect.endpoint(base, 'api_count.php', {'category': '$id'}));
+      final counts = json is Map<String, dynamic> ? json['category_question_count'] : null;
+      if (counts is! Map<String, dynamic>) {
+        throw const FormatException('Expected a "category_question_count" object');
+      }
+      int count(String key) => counts[key] as int? ?? 0;
+      _counts[id] = {
+        'total': count('total_question_count'),
+        for (final difficulty in QuestionFilter.allDifficulties)
+          difficulty: count('total_${difficulty}_question_count'),
+      };
+    }
+  }
 
   /// Gets a new token. A new token has seen nothing, so it also serves after
   /// an old one has run out of questions.
@@ -302,13 +374,53 @@ class OpenTdbDialect extends ApiDialect {
     this.token = token;
   }
 
+  /// Throws [NoQuestionFound] if none of the filter's categories has
+  /// questions of its difficulties.
   @override
-  Uri randomUri(Uri base, int count, QuestionFilter filter) =>
-      ApiDialect.endpoint(base, 'api.php', {
-        'amount': count.clamp(1, maxCount).toString(),
-        'encode': 'url3986',
-        'token': ?token,
-      });
+  Uri randomUri(Uri base, int count, QuestionFilter filter) {
+    var amount = count.clamp(1, maxCount);
+    int? category;
+    String? difficulty;
+    final difficulties = filter.difficulties?.toList()?..sort();
+    final categories = filter.categories;
+    if (categories != null) {
+      final pools = [
+        for (final name in categories.toList()..sort())
+          if (_categoryIds?[name] case final id? when _counts.containsKey(id))
+            for (final level in difficulties ?? const [null])
+              (id: id, difficulty: level, size: _counts[id]![level ?? 'total']!),
+      ].where((pool) => pool.size > 0).toList();
+      if (pools.isEmpty) {
+        throw NoQuestionFound('${base.host} has no questions matching the filter.');
+      }
+      final pool = _pick(pools);
+      category = pool.id;
+      difficulty = pool.difficulty;
+      amount = min(amount, pool.size);
+    } else if (difficulties != null && difficulties.isNotEmpty) {
+      // Every difficulty has well over a batch of questions.
+      difficulty = difficulties[_random.nextInt(difficulties.length)];
+    }
+    return ApiDialect.endpoint(base, 'api.php', {
+      'amount': '$amount',
+      'category': ?category?.toString(),
+      'difficulty': ?difficulty,
+      'encode': 'url3986',
+      'token': ?token,
+    });
+  }
+
+  /// A pool picked in proportion to its size, so every question in the
+  /// filter is about as likely.
+  ({int id, String? difficulty, int size}) _pick(
+      List<({int id, String? difficulty, int size})> pools) {
+    var at = _random.nextInt(pools.fold(0, (sum, pool) => sum + pool.size));
+    for (final pool in pools) {
+      if (at < pool.size) return pool;
+      at -= pool.size;
+    }
+    return pools.last;
+  }
 
   @override
   List<Question> parseRandom(Object? json, Uri base) {

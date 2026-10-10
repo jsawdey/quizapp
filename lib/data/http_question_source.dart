@@ -36,6 +36,8 @@ class HttpQuestionSource extends QuestionSource {
   Future<void>? _refill;
   QuestionFilter? _refillFilter;
   Future<void>? _session;
+  /// The filter [ApiDialect.prepare] last ran for.
+  QuestionFilter? _preparedFor;
   /// When the next batch may be requested, under [ApiDialect.minRequestInterval].
   DateTime? _nextBatchAt;
 
@@ -73,9 +75,16 @@ class HttpQuestionSource extends QuestionSource {
   Future<void> _startSession() =>
       _session ??= _openDialect().whenComplete(() => _session = null);
 
-  Future<void> _openDialect() async {
+  Future<void> _openDialect() => _unexpectedAsUnavailable(() => dialect.open(_getJson, baseUrl));
+
+  @override
+  Future<List<String>> filterCategories() =>
+      _unexpectedAsUnavailable(() => dialect.filterCategories(_getJson, baseUrl));
+
+  /// Runs [action], turning a [FormatException] into [SourceUnavailable].
+  Future<T> _unexpectedAsUnavailable<T>(Future<T> Function() action) async {
     try {
-      await dialect.open(_getJson, baseUrl);
+      return await action();
     } on FormatException catch (e) {
       throw SourceUnavailable('$description sent an unexpected response: ${e.message}');
     }
@@ -150,6 +159,10 @@ class HttpQuestionSource extends QuestionSource {
   }
 
   Future<List<Question>> _requestBatch(QuestionFilter filter) async {
+    if (_preparedFor != filter) {
+      await _unexpectedAsUnavailable(() => dialect.prepare(_getJson, baseUrl, filter));
+      _preparedFor = filter;
+    }
     await _waitForTurn();
     final uri = dialect.randomUri(baseUrl, dialect.batchSize, filter);
     final body = await _send(() => _client.get(uri, headers: _headers));
