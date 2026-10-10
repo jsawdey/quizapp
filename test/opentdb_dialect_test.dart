@@ -107,6 +107,22 @@ void main() {
       expect(water.choices, ['Laughing Gas', 'Water', 'Methane', 'Ammonia']);
     });
 
+    test('keys and orders match tool/build_trivia_db.py', () {
+      // The offline copy must key questions the same way, so hides carry over.
+      final vectors = json.decode(File('test/support/trivia_keys.json').readAsStringSync())
+          as List<dynamic>;
+      expect(vectors, isNotEmpty);
+      for (final vector in vectors.cast<Map<String, dynamic>>()) {
+        final key = OpenTdbDialect.questionKey(vector['category'] as String,
+            vector['question'] as String, vector['answer'] as String);
+        expect(key, vector['key'], reason: vector['question'] as String);
+        if (vector['type'] == 'multiple') {
+          expect(OpenTdbDialect.stableShuffle(key, [vector['answer'] as String,
+            ...(vector['incorrect_answers'] as List).cast<String>()]), vector['choices']);
+        }
+      }
+    });
+
     test('the choice order is stable and the answer isn\'t always first', () {
       final first = dialect.parseRandom(fixtureJson('random.json'), base);
       final again = OpenTdbDialect().parseRandom(fixtureJson('random.json'), base);
