@@ -9,6 +9,13 @@ import 'package:quizapp/model/question.dart';
 /// pacing and errors as an [HttpQuestionSource]'s own requests.
 typedef ApiRequester = Future<Object?> Function(Uri uri);
 
+/// An API answered with an HTTP status the source doesn't handle itself,
+/// such as 404 or 500.
+class UnexpectedStatus extends SourceUnavailable {
+  final int statusCode;
+  const UnexpectedStatus(super.message, this.statusCode);
+}
+
 /// Thrown by [ApiDialect.parseRandom] when the API's session has expired or
 /// run out: the source calls [ApiDialect.open] again and retries once.
 class SessionExpired implements Exception {
@@ -71,7 +78,8 @@ abstract class ApiDialect {
 
   /// Resolves [path] below [base], keeping any path prefix the base has
   /// (`https://host/quiz` + `api/random` -> `https://host/quiz/api/random`).
-  static Uri endpoint(Uri base, String path, [Map<String, String>? query]) {
+  /// A query value may be a list, sent as the parameter repeated.
+  static Uri endpoint(Uri base, String path, [Map<String, Object>? query]) {
     final prefix = base.path.endsWith('/') ? base : base.replace(path: '${base.path}/');
     return prefix.resolve(path).replace(queryParameters: query);
   }
@@ -85,9 +93,30 @@ final Map<String, ApiDialect Function()> apiDialects = {
 };
 
 /// This app's own API (v1), described in docs/question-backend-plan.md and
-/// served by tool/serve_clues.py. Its fields are the clue database's columns.
+/// served by tool/serve_clues.py, from the clue database or the trivia one.
+/// Its fields are the clue database's columns, plus `choices` and
+/// `difficulty` for trivia.
+///
+/// [open] asks `/v1/info` what the server holds; servers older than it are
+/// taken to serve clues.
 class QuizApiDialect extends ApiDialect {
   static const maxCount = 50;
+
+  /// What a clue server filters on: what servers without `/v1/info` serve.
+  static const clueFilters = {FilterKind.round, FilterKind.airDate, FilterKind.boardRow};
+
+  /// The filter names `/v1/info` uses.
+  static const _filterNames = {
+    'round': FilterKind.round,
+    'air_date': FilterKind.airDate,
+    'row': FilterKind.boardRow,
+    'category': FilterKind.category,
+    'difficulty': FilterKind.difficulty,
+  };
+
+  Set<FilterKind> _filters = clueFilters;
+  List<String> _categories = const [];
+  String? _attribution;
 
   @override
   String get name => 'quizapp';
@@ -99,19 +128,50 @@ class QuizApiDialect extends ApiDialect {
   /// still checks [QuestionFilter.matches], so the filter holds; it just
   /// takes more batches.
   @override
-  Set<FilterKind> get supportedFilters =>
-      const {FilterKind.round, FilterKind.airDate, FilterKind.boardRow};
+  Set<FilterKind> get supportedFilters => _filters;
+
+  @override
+  String? get attribution => _attribution;
+
+  @override
+  Future<List<String>> filterCategories(ApiRequester get, Uri base) async => _categories;
+
+  @override
+  Future<void> open(ApiRequester get, Uri base) async {
+    final Object? info;
+    try {
+      info = await get(ApiDialect.endpoint(base, 'v1/info'));
+    } on UnexpectedStatus catch (e) {
+      // A server from before /v1/info: it serves clues.
+      if (e.statusCode == 404 || e.statusCode == 405) return;
+      rethrow;
+    }
+    if (info is! Map<String, dynamic>) throw const FormatException('Expected /v1/info object');
+    final filters = info['filters'];
+    final categories = info['categories'];
+    final attribution = info['attribution'];
+    _filters = filters is List
+        ? {for (final name in filters) ?_filterNames[name]}
+        : clueFilters;
+    _categories = categories is List ? categories.whereType<String>().toList() : const [];
+    _attribution = attribution is String && attribution.isNotEmpty ? attribution : null;
+  }
 
   @override
   Uri randomUri(Uri base, int count, QuestionFilter filter) {
     final rounds = filter.rounds;
     final boardRows = filter.boardRows;
+    final categories = filter.categories;
+    final difficulties = filter.difficulties;
     return ApiDialect.endpoint(base, 'v1/random', {
       'count': count.clamp(1, maxCount).toString(),
       if (rounds != null) 'round': (rounds.toList()..sort()).join(','),
       if (filter.from != null) 'from': isoDate(filter.from!),
       if (filter.to != null) 'to': isoDate(filter.to!),
       if (boardRows != null) 'row': (boardRows.toList()..sort()).join(','),
+      // Repeated, since a name may hold a comma.
+      if (categories != null) 'category': categories.toList()..sort(),
+      if (difficulties != null) 'difficulty': (difficulties.toList()..sort()).join(','),
     });
   }
 

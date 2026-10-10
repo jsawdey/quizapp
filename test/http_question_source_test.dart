@@ -160,6 +160,49 @@ void main() {
       expect(questions[1].difficulty, isNull);
     });
 
+    test('sends trivia filters: categories repeated, difficulties joined', () {
+      final uri = dialect.randomUri(base, 10, const QuestionFilter(
+          categories: {'Science: Computers', 'Art'}, difficulties: {'hard', 'easy'}));
+      expect(uri.queryParametersAll['category'], ['Art', 'Science: Computers']);
+      expect(uri.queryParameters['difficulty'], 'easy,hard');
+    });
+
+    test('open learns from /v1/info what the server holds', () async {
+      final trivia = QuizApiDialect();
+      final asked = <Uri>[];
+      await trivia.open((uri) async {
+        asked.add(uri);
+        return {
+          'namespace': 'opentdb', 'kind': 'trivia', 'filters': ['category', 'difficulty', 'x'],
+          'categories': ['Art', 'Geography'], 'license': 'CC BY-SA 4.0',
+          'attribution': 'Questions from Open Trivia Database (opentdb.com), CC BY-SA 4.0',
+        };
+      }, base);
+      expect(asked.single.toString(), 'https://example.test/v1/info');
+      expect(trivia.supportedFilters, {FilterKind.category, FilterKind.difficulty});
+      expect(await trivia.filterCategories((_) async => null, base), ['Art', 'Geography']);
+      expect(trivia.attribution, contains('Open Trivia Database'));
+
+      final clues = QuizApiDialect();
+      await clues.open((_) async => {'kind': 'clues', 'filters': ['round', 'air_date', 'row']},
+          base);
+      expect(clues.supportedFilters, QuizApiDialect.clueFilters);
+      expect(clues.attribution, isNull);
+    });
+
+    test('a server without /v1/info serves clues', () async {
+      final old = QuizApiDialect();
+      await old.open((_) async => throw const UnexpectedStatus('HTTP 404', 404), base);
+      expect(old.supportedFilters, QuizApiDialect.clueFilters);
+      expect(await old.filterCategories((_) async => null, base), isEmpty);
+
+      await expectLater(QuizApiDialect().open(
+          (_) async => throw const UnexpectedStatus('HTTP 500', 500), base),
+          throwsA(isA<UnexpectedStatus>()));
+      await expectLater(QuizApiDialect().open((_) async => [], base),
+          throwsA(isA<FormatException>()));
+    });
+
     test('accepts integer keys and falls back to a host namespace', () {
       final questions = dialect.parseRandom({
         'questions': [

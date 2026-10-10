@@ -215,7 +215,8 @@ class HttpQuestionSource extends QuestionSource {
       throw SourceUnavailable(ApiDialect.busyMessage(description));
     }
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw SourceUnavailable('$description returned HTTP ${response.statusCode}.');
+      throw UnexpectedStatus(
+          '$description returned HTTP ${response.statusCode}.', response.statusCode);
     }
     return response.body;
   }

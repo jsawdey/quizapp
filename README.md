@@ -63,6 +63,9 @@ flutter run --dart-define-from-file=config/question_source.json
     `QUESTION_API_URL` set to `https://opentdb.com`. See
     [General trivia](#general-trivia-open-trivia-database).
 - `QUESTION_API_TOKEN`: optional bearer token. It is compiled into the app.
+- `LOCAL_DATASET`: which bundled database `local` and `api_with_local_fallback`
+  read: `clues` (default) or `trivia` (see
+  [Offline trivia](#offline-trivia)).
 
 An app built without the clue database (for API use) leaves out its ~43 MB;
 if it is set to `local` it says the database is missing. With
@@ -83,8 +86,32 @@ web builds too, since Open Trivia Database allows requests from any page.
 The app asks for a session token when it starts, so questions don't repeat
 until all of them (about 5,300) have been seen, then starts a new one. It
 fetches 50 at a time, at most one batch every 5 seconds, as the API asks.
-Questions you hide stay hidden on that device. There are no filters for it
-yet.
+Questions you hide stay hidden on that device. The filters offer its
+categories and three difficulties.
+
+### Offline trivia
+
+Open Trivia Database's license allows keeping a copy, so the app can also
+play its questions with no network at all:
+
+```
+python3 tool/build_trivia_db.py
+```
+
+downloads every question (about 12 minutes, at the pace the API asks for;
+the download is kept in `data/` so rebuilding is instant, and `--refresh`
+downloads again) and writes `assets/db/trivia.db`, a few MB. Build the app
+with `QUESTION_SOURCE=local` and `LOCAL_DATASET=trivia` to play it, or with
+`api_with_local_fallback`, `QUESTION_API_DIALECT=opentdb` and
+`LOCAL_DATASET=trivia` to use the live API and fall back to the copy. Keys
+match the live API's, so a hidden question stays hidden across both.
+
+Everything in `assets/db/` is bundled into phone builds, so a build for
+trivia also carries `clues.db` (~87 MB) if you've built it; move it out of
+`assets/db/` first to leave it out. Web builds bundle neither.
+
+`serve_clues.py` serves the copy too, to phones and browsers on your network
+(see [Serving questions](#serving-questions-from-your-own-computer)).
 
 `tool/capture_opentdb.py` saves fresh responses from the live API into
 `test/support/opentdb/`, which the dialect's tests read; rerun it and the
@@ -117,16 +144,19 @@ filter is kept between launches. While a filter is on, the button is filled in
 and its tooltip says which filter it is. If no clue matches, the board offers
 to change or clear the filters.
 
-Filters work with the local database and the `quizapp` API. jService and
-Open Trivia Database APIs can't filter yet, so the button isn't shown for
-them, and with
+Filters work with the local databases, the `quizapp` API and Open Trivia
+Database; for general trivia they pick categories and a difficulty (easy,
+medium or hard) instead. A jService API can't filter, so the button isn't
+shown for it, and with
 `api_with_local_fallback` the app only offers filters both sources support.
 The design is in [docs/filters-plan.md](docs/filters-plan.md).
 
 ## Serving questions from your own computer
 
-`tool/serve_clues.py` serves the clue database over the `quizapp` API, using
-only the Python standard library. One server can feed several devices, a phone
+`tool/serve_clues.py` serves the clue database, or the trivia database with
+`--db assets/db/trivia.db`, over the `quizapp` API, using only the Python
+standard library. The app asks the server which it holds and offers the
+matching filters. One server can feed several devices, a phone
 build can leave out the database, and a question hidden on one device is
 hidden on all of them.
 
@@ -141,9 +171,11 @@ reachable from your local network. Reported questions are kept in
 with the other tool tests; `test/serve_clues_contract_test.dart` checks the
 app against it.
 
-**Personal use only.** The dataset's terms rule out public-facing use, so keep
-the server on your own network, never the internet. The token is a light
-guard, not real security.
+**Personal use only** for the clue database: the dataset's terms rule out
+public-facing use, so keep the server on your own network, never the
+internet. The trivia database is CC BY-SA 4.0, so the server doesn't warn
+about it, though that's no reason to expose it. The token is a light guard,
+not real security.
 
 Point a **debug or profile** build at it over plain `http`:
 

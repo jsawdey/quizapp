@@ -10,20 +10,38 @@ questions, starting with the [Open Trivia Database](https://opentdb.com)
 It builds on the [web UI plan](web-ui-plan.md) and should come after it, so
 the new card mode is written once for phones and browsers.
 
-**Status:** commits 1–4 of §9 are done, so the feature works: the rename;
-the model and UI for choices, difficulty and attribution; real OpenTDB
-responses in `test/support/opentdb/`, which corrected §1, §4 and §10 (see
-"Checked against the live API" in §4); and `OpenTdbDialect`. Commits 5 and 6
-are optional. Commit 4 differs from §4 in two ways: codes 3 and 4 both get a
-new token (a new token has seen nothing, so `api_token.php?command=reset` is
-never needed), and only batch requests are paced, so the token request at
-startup doesn't hold up the first question. The code 1 cap waits for
-filters (§6), since without them every request draws on all 5,000+
-questions. Two small departures from §2–§3:
-the seeded shuffle waits for the OpenTDB dialect (commit 4), the first source
-that needs it, because the `quizapp` API sends choices in display order; and
-"About questions" is a copyright button in the app bar, shown only when the
-source needs credit, since the app bar has no menu.
+**Status:** commits 1–5 of §9 are done; only The Trivia API dialect
+(commit 6, optional) is left. In order: the rename; the model and UI for
+choices, difficulty and attribution; real OpenTDB responses in
+`test/support/opentdb/`, which corrected §1, §4 and §10 (see "Checked
+against the live API" in §4); `OpenTdbDialect`; and the offline copy with
+category and difficulty filters.
+
+Where the code differs from this plan:
+
+- Commits 1–2 (§2–§3): the seeded shuffle waited for the OpenTDB dialect
+  (commit 4), the first source that needs it, because the `quizapp` API
+  sends choices in display order; and "About questions" is a copyright
+  button in the app bar, shown only when the source needs credit, since the
+  app bar has no menu.
+- Commit 4: codes 3 and 4 both get a new token (a new token has seen
+  nothing, so `api_token.php?command=reset` is never needed), and only
+  batch requests are paced, so the token request at startup doesn't hold up
+  the first question.
+- Commit 5, filters (§6): the filter sheet gained Categories and Difficulty
+  sections. Choosing no category means every category. `OpenTdbDialect`
+  fetches category ids when the sheet first asks, not in `open()`, and a new
+  `ApiDialect.prepare` hook counts each chosen category's questions
+  (`api_count.php`) before the first batch for a filter, so a batch asks for
+  no more than its category holds (the code 1 cap from §4). Each batch draws
+  from one category and difficulty, in proportion to their size.
+- Commit 5, offline (§7): the local trivia source picks with a random
+  `OFFSET` among the matches, counted once per filter, which is exactly fair
+  at a few thousand rows; the ids don't need any order. `serve_clues.py`
+  answers a new `GET /v1/info` (question backend plan §7), which tells the
+  app whether it holds clues or trivia, its filters, categories and credit.
+  `trivia.db` stays out of web builds: the web build can't open SQLite, so
+  the browser plays it through `serve_clues.py`.
 
 ## 0. Why, and what's in the way
 

@@ -247,6 +247,14 @@ Optional header: Authorization: Bearer <token>
   multiple-choice trivia ([general-trivia-plan.md](general-trivia-plan.md)
   §5). The app skips a question whose `choices` don't include its
   `response`.
+- Added since: `GET {base}/v1/info` says what the server holds:
+  `{"namespace", "kind": "clues" | "trivia", "filters": [...], "count",
+  "categories" (trivia), "license" and "attribution" (when the data has
+  them)}`. Filter names are `round`, `air_date` and `row` for clues and
+  `category` and `difficulty` for trivia. Trivia servers take
+  `category=<name>` (repeated, one name each) and `difficulty=easy,hard` on
+  `/v1/random`. The app reads it when it opens and takes a 404 or 405 to
+  mean a clue server from before it.
 
 ## 8. `tool/serve_clues.py` (optional self-hosting)
 
