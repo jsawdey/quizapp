@@ -90,6 +90,7 @@ class ClueStore:
         self.reports_path = Path(reports_path)
         self.rng = rng or random.Random()
         self._lock = threading.Lock()
+        self._id_ranges = {}
 
         with self._clues() as conn:
             meta = dict(conn.execute('SELECT key, value FROM meta'))
@@ -114,12 +115,47 @@ class ClueStore:
     def _reports(self):
         return contextlib.closing(sqlite3.connect(self.reports_path))
 
+    def _id_range(self, conn, date_from, date_to):
+        """The first and last clue ids aired from date_from to date_to, or None.
+
+        build_clue_db.py numbers clues in air-date order, so a date range is a
+        range of ids, found by binary search and cached. The query still checks
+        the dates, so the order only affects fairness.
+        """
+        if date_from is None and date_to is None:
+            return 1, self.max_id
+        key = (date_from, date_to)
+        with self._lock:
+            if key in self._id_ranges:
+                return self._id_ranges[key]
+
+        def first_id(test):
+            low, high = 1, self.max_id + 1
+            while low < high:
+                mid = (low + high) // 2
+                air_date = conn.execute('SELECT g.air_date FROM clues c JOIN games g '
+                                        'ON g.id = c.game_id WHERE c.id = ?', (mid,)).fetchone()[0]
+                if test(air_date):
+                    high = mid
+                else:
+                    low = mid + 1
+            return low
+
+        first = 1 if date_from is None else first_id(lambda d: d >= date_from)
+        last = self.max_id if date_to is None else first_id(lambda d: d > date_to) - 1
+        bounds = (first, last) if first <= last else None
+        with self._lock:
+            self._id_ranges[key] = bounds
+        return bounds
+
     def random(self, count, rounds=None, date_from=None, date_to=None):
         if self.max_id == 0:
             return []
-        where, args = ['c.id >= ?'], []
+        where, args = ['c.id >= ?', 'c.id <= ?'], []
         if rounds is not None:
-            where.append(f'c.round IN ({", ".join("?" * len(rounds))})')
+            # The unary plus keeps SQLite off the round index, which would sort
+            # every matching clue; walking forward by id finds one in a few rows.
+            where.append(f'+c.round IN ({", ".join("?" * len(rounds))})')
             args.extend(sorted(rounds))
         if date_from is not None:
             where.append('g.air_date >= ?')
@@ -131,14 +167,18 @@ class ClueStore:
 
         found = {}
         with self._clues() as conn:
+            bounds = self._id_range(conn, date_from, date_to)
+            if bounds is None:
+                return []
+            first, last = bounds
             conn.row_factory = sqlite3.Row
             for _ in range(count * ATTEMPTS_PER_CLUE):
                 if len(found) == count:
                     break
-                start = self.rng.randint(1, self.max_id)
-                row = conn.execute(sql, [start, *args]).fetchone()
-                if row is None and start > 1:
-                    row = conn.execute(sql, [1, *args]).fetchone()
+                start = self.rng.randint(first, last)
+                row = conn.execute(sql, [start, last, *args]).fetchone()
+                if row is None and start > first:
+                    row = conn.execute(sql, [first, last, *args]).fetchone()
                 if row is None:
                     break  # Nothing matches the filter at all.
                 if row['clue_key'] not in self.reported:

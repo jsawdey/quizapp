@@ -117,6 +117,26 @@ class ServeCluesTest(ServerTestCase):
                          {'an elephant', 'St. Petersburg'})
         self.assertEqual(self.responses('/v1/random?count=50&from=2020-01-01'), set())
 
+    def test_date_range_batches_are_full_and_fair(self):
+        # 200 clues, ten on each of 20 dates. Before ids were limited to the
+        # range, most picks landed on the range's first clue.
+        rows = [['1', '200', '0', f'CATEGORY {d}', '', f'Clue {d}-{i}', f'response {d}-{i}',
+                 f'{2000 + d}-03-01', ''] for d in range(20) for i in range(10)]
+        write_tsv(self.dir / 'many.tsv', rows)
+        build_clue_db.build(self.dir / 'many.tsv', self.db, 'test', 'abc123')
+        store = serve_clues.ClueStore(self.db, self.reports, rng=random.Random(1))
+
+        batch = store.random(10, date_from='2010-01-01', date_to='2011-12-31')
+        self.assertEqual(len({q['key'] for q in batch}), 10)
+        self.assertTrue(all(q['air_date'][:4] in ('2010', '2011') for q in batch))
+        # Every clue in the range comes up.
+        seen = {q['response'] for _ in range(20)
+                for q in store.random(10, date_from='2010-01-01', date_to='2011-12-31')}
+        self.assertEqual(seen, {f'response {d}-{i}' for d in (10, 11) for i in range(10)})
+        self.assertEqual(store.random(10, date_from='2030-01-01'), [])
+        self.assertEqual(store.random(10, date_from='2010-06-01', date_to='2010-12-31'), [])
+        self.assertEqual(len(store.random(50, date_to='2000-12-31')), 10)
+
     def test_bad_parameters_are_400(self):
         for query in ['count=x', 'count=0', 'round=4', 'round=one', 'from=yesterday']:
             status, body = self.request('/v1/random?' + query)

@@ -171,7 +171,7 @@ def build(input_path, output_path, dataset_version, source_sha256, keep_media=Fa
     games = {}
     categories = {}
     seen_keys = set()
-    clues = []
+    kept = []
 
     for row in read_rows(input_path):
         stats['read'] += 1
@@ -197,15 +197,21 @@ def build(input_path, output_path, dataset_version, source_sha256, keep_media=Fa
             stats['dropped_duplicate'] += 1
             continue
         seen_keys.add(key)
+        kept.append((air_date, key, category, round_, value, int(row['daily_double_value']),
+                     clean(row['comments']) or None, clue, response,
+                     clean(row['notes']) or None))
+        stats['rounds'][round_] = stats['rounds'].get(round_, 0) + 1
 
+    # Number games and clues in air-date order, keeping file order within a
+    # date. The app and serve_clues.py rely on it: a date range is then a
+    # range of clue ids, which is how they pick fairly from one.
+    kept.sort(key=lambda c: c[0])
+    clues = []
+    for air_date, key, category, round_, value, wager, comment, clue, response, notes in kept:
         game_id = games.setdefault(air_date, len(games) + 1)
         category_id = categories.setdefault(category, len(categories) + 1)
-        clues.append((
-            len(clues) + 1, key, game_id, category_id, round_, value,
-            int(row['daily_double_value']), clean(row['comments']) or None,
-            clue, response, clean(row['notes']) or None,
-        ))
-        stats['rounds'][round_] = stats['rounds'].get(round_, 0) + 1
+        clues.append((len(clues) + 1, key, game_id, category_id, round_, value, wager,
+                      comment, clue, response, notes))
 
     stats['written'] = len(clues)
     stats['games'] = len(games)

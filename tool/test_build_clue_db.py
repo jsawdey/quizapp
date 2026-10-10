@@ -88,6 +88,20 @@ class BuildClueDbTest(unittest.TestCase):
         self.assertEqual([r[0] for r in self.query('SELECT id FROM clues ORDER BY id')],
                          [1, 2, 3, 4, 5, 6])
 
+    def test_ids_follow_air_date(self):
+        # Rows out of date order are numbered by date; rows on one date keep
+        # their file order. Game ids follow the same order.
+        late = [['1', '200', '0', 'LATE', '', f'Late clue {i}', f'late {i}', '2020-01-0' + str(i),
+                 ''] for i in (2, 1)]
+        write_tsv(self.tsv, late + SAMPLE_ROWS)
+        self.build()
+        rows = self.query('SELECT c.id, g.id, g.air_date, c.response FROM clues c '
+                          'JOIN games g ON g.id = c.game_id ORDER BY c.id')
+        self.assertEqual([r[2] for r in rows], sorted(r[2] for r in rows))
+        self.assertEqual([r[1] for r in rows], sorted(r[1] for r in rows))
+        self.assertEqual([r[3] for r in rows][:2], ['a hippopotamus', '"Thriller"'])
+        self.assertEqual([r[3] for r in rows][-2:], ['late 1', 'late 2'])
+
     def test_answer_and_question_columns_are_swapped(self):
         self.build()
         self.assertEqual(

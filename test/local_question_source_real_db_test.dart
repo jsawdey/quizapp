@@ -85,6 +85,42 @@ void main() {
     }
   }, skip: skip);
 
+  test('clue ids follow air date', () async {
+    // LocalQuestionSource picks from a date range by id; see _idRange.
+    final db = await databaseFactoryFfi.openDatabase(file.absolute.path,
+        options: OpenDatabaseOptions(readOnly: true, singleInstance: false));
+    addTearDown(db.close);
+    final backwards = await db.rawQuery('''
+        SELECT COUNT(*) AS n FROM clues a JOIN clues b ON b.id = a.id + 1
+        WHERE b.game_id < a.game_id''');
+    expect(backwards.first['n'], 0);
+    final games = await db.rawQuery('''
+        SELECT COUNT(*) AS n FROM games a JOIN games b ON b.id = a.id + 1
+        WHERE b.air_date <= a.air_date''');
+    expect(games.first['n'], 0);
+  }, skip: skip);
+
+  test('picks fairly and quickly within filters', () async {
+    final range = QuestionFilter(from: DateTime(2010), to: DateTime(2014, 12, 31));
+    final keys = <String>{};
+    for (var i = 0; i < 200; i++) {
+      final q = await source.randomQuestion(filter: range);
+      expect(q.airDate!.year, inInclusiveRange(2010, 2014));
+      keys.add(q.key);
+    }
+    // Before picks were limited to the range's ids, most of them returned the
+    // range's first clue.
+    expect(keys.length, greaterThan(190));
+
+    const noFinal = QuestionFilter(rounds: {1, 2});
+    final watch = Stopwatch()..start();
+    for (var i = 0; i < 100; i++) {
+      expect((await source.randomQuestion(filter: noFinal)).round, isIn([1, 2]));
+    }
+    // About 65 ms each when SQLite used the round index.
+    expect(watch.elapsedMilliseconds / 100, lessThan(5));
+  }, skip: skip);
+
   testWidgets('the app shows real clues and hides one', (WidgetTester tester) async {
     final dir = await tester.runAsync(() => Directory.systemTemp.createTemp('real_app'));
     addTearDown(() => dir!.delete(recursive: true));
