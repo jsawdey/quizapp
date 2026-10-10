@@ -73,6 +73,15 @@ abstract class ApiDialect {
   Uri reportUri(Uri base, Question question) =>
       throw UnsupportedError('$name has no reporting');
 
+  /// [choices] in an order that looks random but is the same everywhere for
+  /// [key]: each choice is ranked by the hash of the key and the choice.
+  static List<String> stableShuffle(String key, List<String> choices) {
+    final ranks = {for (final choice in choices) choice: sha256Hex('$key\u0000$choice')};
+    return [...choices]..sort((a, b) => ranks[a]!.compareTo(ranks[b]!));
+  }
+
+  static String sha256Hex(String text) => sha256.convert(utf8.encode(text)).toString();
+
   /// What to say when an API refuses requests for coming too fast.
   static String busyMessage(String host) => '$host is busy; try again in a few seconds.';
 
@@ -90,6 +99,7 @@ final Map<String, ApiDialect Function()> apiDialects = {
   'quizapp': QuizApiDialect.new,
   'jservice': JServiceDialect.new,
   'opentdb': OpenTdbDialect.new,
+  'thetriviaapi': TheTriviaApiDialect.new,
 };
 
 /// This app's own API (v1), described in docs/question-backend-plan.md and
@@ -529,7 +539,7 @@ class OpenTdbDialect extends ApiDialect {
     if (type == 'boolean') {
       choices = const ['True', 'False'];
     } else if (type == 'multiple') {
-      choices = stableShuffle(key, [answer, ...others.cast<String>()]);
+      choices = ApiDialect.stableShuffle(key, [answer, ...others.cast<String>()]);
     } else {
       return null;
     }
@@ -571,14 +581,123 @@ class OpenTdbDialect extends ApiDialect {
   /// and answer, NUL-separated: OpenTDB questions have no ids. An edited
   /// question gets a new key, so hiding it doesn't carry over.
   static String questionKey(String category, String question, String answer) =>
-      _sha256('$category\u0000$question\u0000$answer').substring(0, 16);
+      ApiDialect.sha256Hex('$category\u0000$question\u0000$answer').substring(0, 16);
+}
 
-  /// [choices] in an order that looks random but is the same everywhere for
-  /// [key]: each choice is ranked by the hash of the key and the choice.
-  static List<String> stableShuffle(String key, List<String> choices) {
-    final ranks = {for (final choice in choices) choice: _sha256('$key\u0000$choice')};
-    return [...choices]..sort((a, b) => ranks[a]!.compareTo(ranks[b]!));
+/// The Trivia API (the-trivia-api.com): general trivia, multiple choice,
+/// CC BY-NC 4.0, so for non-commercial use only. Checked against the live
+/// API; see docs/general-trivia-plan.md and test/support/the_trivia_api/.
+///
+/// Its questions have ids, it filters on the server, and a short page comes
+/// back when fewer questions match than were asked for, so it needs none of
+/// OpenTDB's workarounds. There is no session, so questions can repeat.
+class TheTriviaApiDialect extends ApiDialect {
+  static const maxCount = 50;
+  static const sourceId = 'the-trivia-api';
+
+  /// Every slug each category goes by, by display name, from
+  /// `/v2/categories`. Questions carry one of the slugs.
+  Map<String, List<String>> _slugs = const {};
+  Map<String, String> _names = const {};
+
+  @override
+  String get name => 'thetriviaapi';
+
+  @override
+  int get batchSize => maxCount;
+
+  /// The API allows 20 requests every 5 seconds.
+  @override
+  Duration get minRequestInterval => const Duration(milliseconds: 300);
+
+  @override
+  String get attribution => 'Questions from The Trivia API (the-trivia-api.com), CC BY-NC 4.0';
+
+  /// It filters on the server, but ignores a category it doesn't know and
+  /// sends General Knowledge instead. [HttpQuestionSource] still checks
+  /// every question against the filter, so that can't leak through.
+  @override
+  bool get filtersOnServer => true;
+
+  @override
+  Set<FilterKind> get supportedFilters => const {FilterKind.category, FilterKind.difficulty};
+
+  /// Gets the category names, so questions show "Film & TV", not
+  /// "film_and_tv".
+  @override
+  Future<void> open(ApiRequester get, Uri base) async {
+    final json = await get(ApiDialect.endpoint(base, 'v2/categories'));
+    if (json is! Map<String, dynamic>) throw const FormatException('Expected a categories object');
+    _slugs = {
+      for (final MapEntry(:key, :value) in json.entries)
+        if (value is List) key: value.whereType<String>().toList(),
+    };
+    _names = {
+      for (final MapEntry(key: name, value: slugs) in _slugs.entries)
+        for (final slug in slugs) slug: name,
+    };
   }
 
-  static String _sha256(String text) => sha256.convert(utf8.encode(text)).toString();
+  @override
+  Future<List<String>> filterCategories(ApiRequester get, Uri base) async =>
+      _slugs.keys.toList()..sort();
+
+  @override
+  Uri randomUri(Uri base, int count, QuestionFilter filter) {
+    final categories = filter.categories;
+    final difficulties = filter.difficulties;
+    return ApiDialect.endpoint(base, 'v2/questions', {
+      // 0 would mean hundreds.
+      'limit': count.clamp(1, maxCount).toString(),
+      // Every slug a category goes by: questions may carry any of them.
+      if (categories != null)
+        'categories': [for (final name in categories.toList()..sort()) ...?_slugs[name]].join(','),
+      if (difficulties != null) 'difficulties': (difficulties.toList()..sort()).join(','),
+    });
+  }
+
+  @override
+  List<Question> parseRandom(Object? json, Uri base) {
+    if (json is! List) throw const FormatException('Expected a JSON list of questions');
+    return [for (final item in json) ?_parse(item)];
+  }
+
+  /// Returns null for items that don't parse, aren't plain multiple choice
+  /// (the API also has picture and typed-answer questions), or whose
+  /// choices can't be offered.
+  Question? _parse(Object? item) {
+    if (item is! Map<String, dynamic> || item['type'] != 'text_choice') return null;
+    final id = item['id'];
+    final questionField = item['question'];
+    final question = _text(questionField is Map ? questionField['text'] : null);
+    final answer = _text(item['correctAnswer']);
+    final slug = _text(item['category']);
+    final incorrect = item['incorrectAnswers'];
+    if (id is! String || id.isEmpty || question == null || answer == null || slug == null ||
+        incorrect is! List) {
+      return null;
+    }
+    final others = [for (final choice in incorrect) _text(choice)];
+    if (others.contains(null)) return null;
+    final choices = ApiDialect.stableShuffle(id, [answer, ...others.cast<String>()]);
+    if (!Question.validChoices(choices, answer)) return null;
+    final difficulty = _text(item['difficulty'])?.toLowerCase();
+    return Question(
+      sourceId: sourceId,
+      key: id,
+      question: question,
+      answer: answer,
+      category: _names[slug] ?? slug,
+      choices: choices,
+      difficulty: difficulty,
+      raw: item,
+    );
+  }
+
+  /// Trimmed text, or null: some answers end in a space or a no-break space.
+  static String? _text(Object? value) {
+    if (value is! String) return null;
+    final text = value.trim();
+    return text.isEmpty ? null : text;
+  }
 }

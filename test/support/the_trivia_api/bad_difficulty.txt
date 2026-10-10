@@ -1,0 +1,1 @@
+Invalid difficulty. Must be "easy", "medium" or "hard" (or not used at all). Instead received impossible

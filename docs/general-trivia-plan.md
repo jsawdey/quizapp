@@ -10,12 +10,11 @@ questions, starting with the [Open Trivia Database](https://opentdb.com)
 It builds on the [web UI plan](web-ui-plan.md) and should come after it, so
 the new card mode is written once for phones and browsers.
 
-**Status:** commits 1–5 of §9 are done; only The Trivia API dialect
-(commit 6, optional) is left. In order: the rename; the model and UI for
-choices, difficulty and attribution; real OpenTDB responses in
+**Status:** all six commits of §9 are done. In order: the rename; the model
+and UI for choices, difficulty and attribution; real OpenTDB responses in
 `test/support/opentdb/`, which corrected §1, §4 and §10 (see "Checked
-against the live API" in §4); `OpenTdbDialect`; and the offline copy with
-category and difficulty filters.
+against the live API" in §4); `OpenTdbDialect`; the offline copy with
+category and difficulty filters; and `TheTriviaApiDialect`.
 
 Where the code differs from this plan:
 
@@ -42,6 +41,28 @@ Where the code differs from this plan:
   app whether it holds clues or trivia, its filters, categories and credit.
   `trivia.db` stays out of web builds: the web build can't open SQLite, so
   the browser plays it through `serve_clues.py`.
+- Commit 6, The Trivia API, checked against the live API on 2026-10-10
+  (`tool/capture_trivia_api.py`, saved in `test/support/the_trivia_api/`).
+  §1's row was mostly right; what it missed:
+  - Questions carry a category *slug* (`film_and_tv`), and `/v2/categories`
+    maps each display name to all its slugs (`"Film & TV": ["movies",
+    "film", "film_and_tv"]`). The dialect reads that list in `open()`, shows
+    display names, and sends every slug of a chosen category.
+  - An unknown category is ignored, not refused: the API sends General
+    Knowledge instead. The source's own check of each question against the
+    filter catches it.
+  - `limit` over 50 is capped silently, and `limit=0` returns hundreds, so
+    the dialect never sends 0. A bad `difficulties` value is HTTP 400 with a
+    plain-text body.
+  - A category with fewer questions than asked for comes back as a short
+    page, so OpenTDB's counting isn't needed.
+  - By default only `text_choice` questions are served (`/v2/metadata` also
+    counts `text_input` and `image_choice`); the dialect skips any other
+    type. Every question has 3 wrong answers, some answers end in a space or
+    a no-break space, and the text needs no decoding.
+  - Rate limit: `ratelimit-policy: 20;w=5` (20 requests per 5 seconds); the
+    dialect paces batches 300 ms apart. CORS allows any origin.
+  - The license is CC BY-NC 4.0, confirmed on the site.
 
 ## 0. Why, and what's in the way
 
@@ -354,7 +375,8 @@ Commits 1–4 are the feature. Commits 5 and 6 can wait or be dropped.
 
 - **API details can drift.** OpenTDB was checked on 2026-10-10 (§4); rerun
   `tool/capture_opentdb.py` and the dialect tests if it starts misbehaving.
-  The Trivia API is still unchecked.
+  The Trivia API was checked the same day; `tool/capture_trivia_api.py`
+  refreshes its fixtures.
 - **Rate limit.** One request every 5 seconds per IP is shared by every
   device behind your router. Batches of 50 and the pacing in §4 keep normal
   play well under it, but several devices starting at once can get code 5

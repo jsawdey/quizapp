@@ -126,6 +126,13 @@ void main() {
           .having((s) => s.attribution, 'attribution', contains('Open Trivia Database')));
     });
 
+    test('can read from The Trivia API', () {
+      final config = web(apiUrl: 'https://the-trivia-api.com', apiDialect: 'thetriviaapi');
+      expect(createQuestionSource(config), isA<HttpQuestionSource>()
+          .having((s) => s.dialect, 'dialect', isA<TheTriviaApiDialect>())
+          .having((s) => s.attribution, 'attribution', contains('CC BY-NC')));
+    });
+
     test('rejects the local database', () {
       expect(() => web(source: 'local'), configError('isn\'t available in the browser'));
       expect(() => web(source: 'api_with_local_fallback'),

@@ -62,6 +62,9 @@ flutter run --dart-define-from-file=config/question_source.json
   - `opentdb`: [Open Trivia Database](https://opentdb.com), with
     `QUESTION_API_URL` set to `https://opentdb.com`. See
     [General trivia](#general-trivia-open-trivia-database).
+  - `thetriviaapi`: [The Trivia API](https://the-trivia-api.com), with
+    `QUESTION_API_URL` set to `https://the-trivia-api.com`. See
+    [The Trivia API](#the-trivia-api).
 - `QUESTION_API_TOKEN`: optional bearer token. It is compiled into the app.
 - `LOCAL_DATASET`: which bundled database `local` and `api_with_local_fallback`
   read: `clues` (default) or `trivia` (see
@@ -117,6 +120,18 @@ trivia also carries `clues.db` (~87 MB) if you've built it; move it out of
 `test/support/opentdb/`, which the dialect's tests read; rerun it and the
 tests if the API seems to have changed.
 
+### The Trivia API
+
+Set `QUESTION_API_URL` to `https://the-trivia-api.com` and
+`QUESTION_API_DIALECT` to `thetriviaapi` for a second source of general
+trivia: thousands of multiple-choice questions in 10 categories, filtered by
+category and difficulty like OpenTDB's, in web builds too. Its license is
+CC BY-NC 4.0, so **non-commercial use only**; fine for this personal app, and
+credited under the copyright button. It has no session, so questions can
+come round again sooner than with OpenTDB, and there is no offline copy.
+`tool/capture_trivia_api.py` saves fresh responses for its tests, as
+`capture_opentdb.py` does for OpenTDB's.
+
 ### Multiple-choice questions
 
 A question can come with answer choices. Then a button for each choice sits
@@ -144,8 +159,8 @@ filter is kept between launches. While a filter is on, the button is filled in
 and its tooltip says which filter it is. If no clue matches, the board offers
 to change or clear the filters.
 
-Filters work with the local databases, the `quizapp` API and Open Trivia
-Database; for general trivia they pick categories and a difficulty (easy,
+Filters work with the local databases, the `quizapp` API, Open Trivia
+Database and The Trivia API; for general trivia they pick categories and a difficulty (easy,
 medium or hard) instead. A jService API can't filter, so the button isn't
 shown for it, and with
 `api_with_local_fallback` the app only offers filters both sources support.

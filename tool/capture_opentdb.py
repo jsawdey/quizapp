@@ -145,7 +145,7 @@ class Capturer:
         manifest = {
             'captured_at': datetime.date.today().isoformat(),
             'base': self.base,
-            'token_placeholder': TOKEN_PLACEHOLDER,
+            **({'token_placeholder': TOKEN_PLACEHOLDER} if self.token else {}),
             'files': self.manifest,
         }
         (out / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n',

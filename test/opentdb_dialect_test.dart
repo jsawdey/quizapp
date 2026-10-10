@@ -117,7 +117,7 @@ void main() {
             vector['question'] as String, vector['answer'] as String);
         expect(key, vector['key'], reason: vector['question'] as String);
         if (vector['type'] == 'multiple') {
-          expect(OpenTdbDialect.stableShuffle(key, [vector['answer'] as String,
+          expect(ApiDialect.stableShuffle(key, [vector['answer'] as String,
             ...(vector['incorrect_answers'] as List).cast<String>()]), vector['choices']);
         }
       }
