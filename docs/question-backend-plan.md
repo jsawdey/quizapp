@@ -307,7 +307,11 @@ flutter run                      # no file -> local (the default)
 - **Not in v1:** a settings screen for switching backends at runtime. The
   factory makes it easy to add later (persist the choice in a `settings`
   table in `user.db` and rebuild the repository). Build-time config keeps the
-  UI unchanged for a single-user app.
+  UI unchanged for a single-user app. *Added later, with general trivia:* a
+  "Questions from" dialog (`lib/config/source_choice.dart`) offers the
+  configured source, the bundled databases and the public trivia APIs. The
+  choice is kept with shared_preferences, and the repository swaps its source
+  in place rather than being rebuilt.
 
 ## 10. UI changes (`lib/quiz_page.dart` and widgets)
 
@@ -399,4 +403,5 @@ pass at every commit. The SessionStart hook already installs everything needed.
   domain you own); private certificates don't work, because Android apps
   don't trust user-installed CAs by default.
 - **Decided:** build-time config is enough for v1. A runtime backend switcher
-  is left for later (§9).
+  is left for later (§9). It has since been added; build-time config now
+  picks the default.

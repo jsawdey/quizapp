@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
+import 'package:quizapp/config/source_choice.dart';
 import 'package:quizapp/controller/question_repository.dart';
 import 'package:quizapp/data/question_source.dart';
 import 'package:quizapp/model/question.dart';
@@ -71,10 +72,13 @@ class _ShortcutAction<T extends Intent> extends Action<T> {
 }
 
 class QuizPage extends StatefulWidget {
-  const QuizPage({super.key, required this.title, required this.repository});
+  const QuizPage({super.key, required this.title, required this.repository, this.sources});
 
   final String title;
   final QuestionRepository repository;
+
+  /// The sources the app can switch between; no switch if null.
+  final SourceChooser? sources;
 
   @override
   State<QuizPage> createState() => _QuizPageState();
@@ -431,6 +435,43 @@ class _QuizPageState extends State<QuizPage> {
     );
   }
 
+  /// Offers the sources this build can read and switches to the one chosen.
+  Future<void> _chooseSource() async {
+    final sources = widget.sources;
+    if (sources == null) return;
+    final chosen = await showDialog<String>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Questions from'),
+        children: <Widget>[
+          for (final option in sources.options)
+            ListTile(
+              leading: Icon(option == sources.current
+                  ? Icons.radio_button_checked : Icons.radio_button_unchecked),
+              title: Text(option.label),
+              subtitle: Text(option.detail),
+              selected: option == sources.current,
+              onTap: () => Navigator.pop(context, option.id),
+            ),
+        ],
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    final source = await sources.choose(chosen);
+    if (source == null || !mounted) return;
+    await widget.repository.switchSource(source);
+    if (!mounted) return;
+    // The question showing came from the old source.
+    setState(() {
+      _current = null;
+      _error = null;
+      _needsToken = false;
+      _noMatch = false;
+      _showOverlay = false;
+    });
+    await _loadQuestion();
+  }
+
   Future<void> _showAbout(String attribution) => showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
@@ -512,6 +553,13 @@ class _QuizPageState extends State<QuizPage> {
                     'on this device',
                 child: Icon(Icons.cloud_off),
               ),
+            ),
+          if (widget.sources?.hasChoice ?? false)
+            IconButton(
+              icon: const Icon(Icons.swap_horiz),
+              tooltip: 'Questions from: ${widget.sources!.current.label}',
+              // A question loading now would be from the old source.
+              onPressed: _loading ? null : _chooseSource,
             ),
           if (_canFilter) _buildFilterButton(),
           if (attribution != null && _current != null)

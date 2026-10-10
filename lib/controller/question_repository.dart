@@ -10,12 +10,13 @@ import 'package:quizapp/model/question.dart';
 
 /// What the UI talks to. Forwards to a [QuestionSource] and handles what is
 /// the same for every source: skipping hidden questions and hiding them.
+/// The source can be swapped while the app runs; see [switchSource].
 class QuestionRepository {
   /// How many random questions to try before giving up because they were all
   /// hidden.
   static const maxAttempts = 20;
 
-  final QuestionSource source;
+  QuestionSource _source;
   final HiddenQuestionStore hiddenStore;
 
   /// Where an access token entered in the app is kept, and the credentials the
@@ -28,16 +29,24 @@ class QuestionRepository {
   final FilterStore? filterStore;
   QuestionFilter _filter = QuestionFilter.any;
   bool _filterChosen = false;
-  Future<void>? _opening;
+  Future<void>? _storesOpening;
+  Future<void>? _sourceOpening;
 
-  QuestionRepository({required this.source, required this.hiddenStore,
-    this.tokenStore, this.credentials, this.filterStore});
+  QuestionRepository({required QuestionSource source, required this.hiddenStore,
+    this.tokenStore, this.credentials, this.filterStore})
+      : _source = source;
 
-  /// Opens the source and the hidden-question store. Safe to call more than
-  /// once; a failed open is retried on the next call.
-  Future<void> open() => _opening ??= _open();
+  /// Where questions come from now.
+  QuestionSource get source => _source;
 
-  Future<void> _open() async {
+  /// Opens the stores, then the source. Safe to call more than once; a
+  /// failed open is retried on the next call.
+  Future<void> open() async {
+    await (_storesOpening ??= _openStores());
+    await (_sourceOpening ??= _openSource(_source));
+  }
+
+  Future<void> _openStores() async {
     try {
       final tokenStore = this.tokenStore;
       final credentials = this.credentials;
@@ -45,10 +54,35 @@ class QuestionRepository {
         credentials.token = await tokenStore.read() ?? credentials.token;
       }
       await _readFilter();
-      await Future.wait([source.open(), hiddenStore.open()]);
+      await hiddenStore.open();
     } catch (_) {
-      _opening = null;
+      _storesOpening = null;
       rethrow;
+    }
+  }
+
+  Future<void> _openSource(QuestionSource source) async {
+    try {
+      await source.open();
+    } catch (_) {
+      // Unless the source has been switched since.
+      if (identical(source, _source)) _sourceOpening = null;
+      rethrow;
+    }
+  }
+
+  /// Reads from [source] from now on, and closes the old one. Hidden
+  /// questions and the token carry over, and the filter applies as far as
+  /// [source] supports it.
+  Future<void> switchSource(QuestionSource source) async {
+    final old = _source;
+    if (identical(old, source)) return;
+    _source = source;
+    _sourceOpening = null;
+    try {
+      await old.close();
+    } catch (e) {
+      debugPrint('Could not close ${old.description}: $e');
     }
   }
 
@@ -150,6 +184,7 @@ class QuestionRepository {
 
   Future<void> close() async {
     await Future.wait([source.close(), hiddenStore.close()]);
-    _opening = null;
+    _storesOpening = null;
+    _sourceOpening = null;
   }
 }

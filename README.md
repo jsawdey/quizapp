@@ -40,8 +40,21 @@ with `python3 -m unittest discover tool`.
 
 ## Choosing the question source
 
-Questions come from the local clue database by default, so after building it
-`flutter run` just works. To read from an HTTP API instead, copy
+**In the app**, the ⇄ button in the app bar ("Questions from") switches
+between the sources the build can use, and the app remembers the choice:
+
+- the source the build was configured with (below), always listed first;
+- **Jeopardy! clues** and **Trivia** on the device, if `clues.db` or
+  `trivia.db` was bundled (phone and desktop builds only);
+- **Open Trivia Database** and **The Trivia API**, online.
+
+Hidden questions and the filter carry over; each source applies the parts
+of the filter it supports. Only the configured server gets the access token.
+
+**At build time**, the settings below pick that configured source, which is
+also the default. Questions come from the local clue database unless you say
+otherwise, so after building it `flutter run` just works. To read from an
+HTTP API instead, copy
 `config/question_source.example.json` to `config/question_source.json`
 (git-ignored), fill it in and pass it to Flutter:
 

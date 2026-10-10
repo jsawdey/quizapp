@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:quizapp/config/source_choice.dart';
 import 'package:quizapp/controller/question_repository.dart';
 import 'package:quizapp/data/fallback_question_source.dart';
 import 'package:quizapp/data/filter_store.dart';
@@ -381,6 +382,90 @@ void main() {
         withSource: FallbackQuestionSource(primary: primary, fallback: fallback));
     expect(find.text('CLUE API'), findsOneWidget);
     expect(find.byIcon(Icons.cloud_off), findsNothing);
+  });
+
+  group('choosing the source', () {
+    late InMemorySourceChoiceStore choice;
+    late FakeQuestionSource clues;
+    late FakeQuestionSource trivia;
+    late SourceChooser sources;
+
+    setUp(() {
+      clues = FakeQuestionSource([fakeQuestion('1')]);
+      trivia = FakeQuestionSource([fakeQuestion('t', answer: 'Bern',
+          choices: ['Bern', 'Wien'], value: null, difficulty: 'easy')]);
+      choice = InMemorySourceChoiceStore();
+      sources = SourceChooser([
+        SourceOption(id: 'local:clues', label: 'Jeopardy! clues', detail: 'On this device',
+            create: () => clues),
+        SourceOption(id: 'opentdb', label: 'Open Trivia Database', detail: 'Online trivia',
+            create: () => trivia),
+      ], store: choice);
+    });
+
+    Future<void> pumpWithSources(WidgetTester tester) async {
+      await tester.pumpWidget(QuizApp(sources: sources,
+          repository: QuestionRepository(source: sources.current.create(), hiddenStore: hidden)));
+      await tester.pump();
+    }
+
+    testWidgets('switches to the chosen source and remembers it', (WidgetTester tester) async {
+      await pumpWithSources(tester);
+      expect(find.text('CLUE 1'), findsOneWidget);
+      expect(find.byTooltip('Questions from: Jeopardy! clues'), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.swap_horiz));
+      await tester.pumpAndSettle();
+      expect(find.text('Questions from'), findsOneWidget);
+      expect(find.text('Online trivia'), findsOneWidget);
+      expect(tester.widget<ListTile>(find.widgetWithText(ListTile, 'Jeopardy! clues')).selected,
+          isTrue);
+
+      await tester.tap(find.text('Open Trivia Database'));
+      await tester.pumpAndSettle();
+      expect(find.text('CLUE T'), findsOneWidget);
+      expect(find.byType(ChoiceListWidget), findsOneWidget);
+      expect(find.text('EASY'), findsOneWidget);
+      expect(choice.id, 'opentdb');
+      expect(clues.closes, 1);
+      expect(find.byTooltip('Questions from: Open Trivia Database'), findsOneWidget);
+    });
+
+    testWidgets('closing the dialog changes nothing', (WidgetTester tester) async {
+      await pumpWithSources(tester);
+      await tester.tap(find.byIcon(Icons.swap_horiz));
+      await tester.pumpAndSettle();
+      await tester.tapAt(const Offset(10, 10));
+      await tester.pumpAndSettle();
+      expect(find.text('CLUE 1'), findsOneWidget);
+      expect(choice.id, isNull);
+      expect(clues.closes, 0);
+    });
+
+    testWidgets('can switch away from a source that fails', (WidgetTester tester) async {
+      clues.error = const SourceUnavailable('No clue database is bundled with this build.');
+      await pumpWithSources(tester);
+      expect(find.text('No clue database is bundled with this build.'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.swap_horiz));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open Trivia Database'));
+      await tester.pumpAndSettle();
+      expect(find.text('CLUE T'), findsOneWidget);
+    });
+
+    testWidgets('no button with nothing to choose, or while loading',
+        (WidgetTester tester) async {
+      final gate = Completer<void>();
+      clues.gate = gate.future;
+      await pumpWithSources(tester);
+      expect(tester.widget<IconButton>(find.widgetWithIcon(IconButton, Icons.swap_horiz))
+          .onPressed, isNull);
+      gate.complete();
+      await tester.pump();
+
+      await pumpApp(tester);
+      expect(find.byIcon(Icons.swap_horiz), findsNothing);
+    });
   });
 
   group('choices', () {

@@ -35,6 +35,56 @@ void main() {
     expect(source.opens, 2);
   });
 
+  group('switchSource', () {
+    test('closes the old source and opens the new one, once', () async {
+      final clues = FakeQuestionSource([fakeQuestion('c', sourceId: 'jwolle1')]);
+      final trivia = FakeQuestionSource([fakeQuestion('t', sourceId: 'opentdb')]);
+      final repository = repositoryWith(clues);
+      expect((await repository.next()).key, 'c');
+      await repository.switchSource(trivia);
+      expect(clues.closes, 1);
+      expect(repository.source, same(trivia));
+      expect((await repository.next()).key, 't');
+      await repository.next();
+      expect(trivia.opens, 1);
+      // Switching to the same source changes nothing.
+      await repository.switchSource(trivia);
+      expect(trivia.closes, 0);
+    });
+
+    test('keeps hidden questions and the filter, as far as the new source goes', () async {
+      final clues = FakeQuestionSource([fakeQuestion('c')],
+          supportedFilters: const {FilterKind.round});
+      final trivia = FakeQuestionSource([fakeQuestion('t1'), fakeQuestion('t2')],
+          supportedFilters: const {FilterKind.difficulty});
+      final store = InMemoryFilterStore(
+          const QuestionFilter(rounds: {3}, difficulties: {'hard'}));
+      final repository = QuestionRepository(source: clues, hiddenStore: hidden,
+          filterStore: store);
+      await repository.next();
+      expect(clues.lastFilter, const QuestionFilter(rounds: {3}));
+      await repository.hide(fakeQuestion('t1'));
+
+      await repository.switchSource(trivia);
+      expect((await repository.next()).key, 't2');
+      expect(trivia.lastFilter, const QuestionFilter(difficulties: {'hard'}));
+    });
+
+    test('a new source that fails to open is retried; the old one isn\'t', () async {
+      final old = FakeQuestionSource([fakeQuestion('o')])
+        ..openError = const SourceUnavailable('down');
+      final fresh = FakeQuestionSource([fakeQuestion('n')])
+        ..openError = const SourceUnavailable('no database');
+      final repository = repositoryWith(old);
+      await expectLater(repository.next(), throwsA(isA<SourceUnavailable>()));
+      await repository.switchSource(fresh);
+      await expectLater(repository.next(), throwsA(isA<SourceUnavailable>()));
+      fresh.openError = null;
+      expect((await repository.next()).key, 'n');
+      expect(old.opens, 1);
+    });
+  });
+
   test('skips hidden questions', () async {
     final source = FakeQuestionSource([fakeQuestion('1'), fakeQuestion('2')]);
     final repository = repositoryWith(source);
