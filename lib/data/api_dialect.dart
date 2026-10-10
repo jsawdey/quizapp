@@ -49,17 +49,23 @@ class QuizApiDialect extends ApiDialect {
   @override
   bool get filtersOnServer => true;
 
+  /// Servers older than the `row` parameter ignore it, but [HttpQuestionSource]
+  /// still checks [QuestionFilter.matches], so the filter holds; it just
+  /// takes more batches.
   @override
-  Set<FilterKind> get supportedFilters => const {FilterKind.round, FilterKind.airDate};
+  Set<FilterKind> get supportedFilters =>
+      const {FilterKind.round, FilterKind.airDate, FilterKind.boardRow};
 
   @override
   Uri randomUri(Uri base, int count, QuestionFilter filter) {
     final rounds = filter.rounds;
+    final boardRows = filter.boardRows;
     return ApiDialect.endpoint(base, 'v1/random', {
       'count': count.clamp(1, maxCount).toString(),
       if (rounds != null) 'round': (rounds.toList()..sort()).join(','),
       if (filter.from != null) 'from': isoDate(filter.from!),
       if (filter.to != null) 'to': isoDate(filter.to!),
+      if (boardRows != null) 'row': (boardRows.toList()..sort()).join(','),
     });
   }
 

@@ -137,8 +137,27 @@ class ServeCluesTest(ServerTestCase):
         self.assertEqual(store.random(10, date_from='2010-06-01', date_to='2010-12-31'), [])
         self.assertEqual(len(store.random(50, date_to='2000-12-31')), 10)
 
+    def test_board_rows_match_the_shared_examples(self):
+        # The same examples check the app's JeopardyQuestion.boardRow and
+        # LocalQuestionSource. Final Jeopardy has no row and always passes.
+        examples = json.loads((Path(__file__).resolve().parent.parent / 'test' / 'support'
+                               / 'board_rows.json').read_text(encoding='utf-8'))
+        rows = [[str(e['round']), str(e['value']), '0', 'CATEGORY', '', f'Clue {i}',
+                 f'response {i}', e['air_date'], ''] for i, e in enumerate(examples)]
+        write_tsv(self.dir / 'rows.tsv', rows)
+        build_clue_db.build(self.dir / 'rows.tsv', self.db, 'test', 'abc123')
+        store = serve_clues.ClueStore(self.db, self.reports, rng=random.Random(1))
+        for row in range(1, 6):
+            found = {q['response'] for _ in range(20) for q in store.random(50, rows={row})}
+            expected = {f'response {i}' for i, e in enumerate(examples)
+                        if e['row'] == row or e['round'] == 3}
+            self.assertEqual(found, expected, f'row {row}')
+        self.assertEqual(serve_clues.parse_random_query('row=5,4')[4], {4, 5})
+        self.assertIsNone(serve_clues.parse_random_query('')[4])
+
     def test_bad_parameters_are_400(self):
-        for query in ['count=x', 'count=0', 'round=4', 'round=one', 'from=yesterday']:
+        for query in ['count=x', 'count=0', 'round=4', 'round=one', 'from=yesterday',
+                      'row=6', 'row=0', 'row=top']:
             status, body = self.request('/v1/random?' + query)
             self.assertEqual(status, 400, query)
             self.assertIn('error', body)

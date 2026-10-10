@@ -121,6 +121,31 @@ void main() {
     expect(watch.elapsedMilliseconds / 100, lessThan(5));
   }, skip: skip);
 
+  test('every Jeopardy and Double Jeopardy clue has a board row', () async {
+    final db = await databaseFactoryFfi.openDatabase(file.absolute.path,
+        options: OpenDatabaseOptions(readOnly: true, singleInstance: false));
+    addTearDown(db.close);
+    // Clue values doubled on 2001-11-26; see JeopardyQuestion.boardRow.
+    final misfits = await db.rawQuery('''
+        SELECT COUNT(*) AS n FROM (
+          SELECT c.value, CASE c.round WHEN 1 THEN 100 ELSE 200 END
+                 * CASE WHEN g.air_date >= '2001-11-26' THEN 2 ELSE 1 END AS base
+          FROM clues c JOIN games g ON g.id = c.game_id WHERE c.round IN (1, 2))
+        WHERE value % base != 0 OR value / base NOT BETWEEN 1 AND 5''');
+    expect(misfits.first['n'], 0);
+  }, skip: skip);
+
+  test('picks fairly from a board row', () async {
+    const bottom = QuestionFilter(rounds: {1, 2}, boardRows: {5});
+    final keys = <String>{};
+    for (var i = 0; i < 200; i++) {
+      final q = await source.randomQuestion(filter: bottom);
+      expect(q.boardRow, 5);
+      keys.add(q.key);
+    }
+    expect(keys.length, greaterThan(190));
+  }, skip: skip);
+
   testWidgets('the app shows real clues and hides one', (WidgetTester tester) async {
     final dir = await tester.runAsync(() => Directory.systemTemp.createTemp('real_app'));
     addTearDown(() => dir!.delete(recursive: true));

@@ -24,8 +24,8 @@ class InMemoryFilterStore implements FilterStore {
 }
 
 /// Keeps the filter with shared_preferences, as JSON such as
-/// `{"rounds":[1,2],"from":"1990-01-01","to":"1999-12-31"}`. A missing key
-/// means that part isn't filtered.
+/// `{"rounds":[1,2],"from":"1990-01-01","to":"1999-12-31","rows":[4,5]}`.
+/// A missing key means that part isn't filtered.
 class SharedPrefsFilterStore implements FilterStore {
   static const prefsKey = 'question_filter';
 
@@ -54,10 +54,12 @@ class SharedPrefsFilterStore implements FilterStore {
 @visibleForTesting
 String encodeFilter(QuestionFilter filter) {
   final rounds = filter.rounds;
+  final boardRows = filter.boardRows;
   return json.encode({
     if (rounds != null) 'rounds': rounds.toList()..sort(),
     if (filter.from != null) 'from': isoDate(filter.from!),
     if (filter.to != null) 'to': isoDate(filter.to!),
+    if (boardRows != null) 'rows': boardRows.toList()..sort(),
   });
 }
 
@@ -73,13 +75,15 @@ QuestionFilter decodeFilter(String saved) {
     return QuestionFilter.any;
   }
   if (decoded is! Map<String, dynamic>) return QuestionFilter.any;
-  final rounds = decoded['rounds'];
   DateTime? date(Object? value) => value is String ? DateTime.tryParse(value) : null;
+  Set<int>? ints(Object? value) =>
+      value is List && value.isNotEmpty && value.every((v) => v is int)
+          ? value.cast<int>().toSet()
+          : null;
   return QuestionFilter(
-    rounds: rounds is List && rounds.isNotEmpty && rounds.every((r) => r is int)
-        ? rounds.cast<int>().toSet()
-        : null,
+    rounds: ints(decoded['rounds']),
     from: date(decoded['from']),
     to: date(decoded['to']),
+    boardRows: ints(decoded['rows']),
   );
 }

@@ -19,6 +19,11 @@ class LocalQuestionSource extends QuestionSource {
     JOIN categories cat ON cat.id = c.category_id
     JOIN games g ON g.id = c.game_id''';
 
+  /// The round's value for the top row of the board, as in
+  /// [JeopardyQuestion.boardRow]; the `?` is the day values doubled.
+  static const _rowBase = '(CASE c.round WHEN 1 THEN 100 ELSE 200 END '
+      '* CASE WHEN g.air_date >= ? THEN 2 ELSE 1 END)';
+
   final Future<sqflite.Database> Function() _openDatabase;
   final Random _random;
   sqflite.Database? _db;
@@ -39,7 +44,8 @@ class LocalQuestionSource extends QuestionSource {
   String get description => 'the clue database';
 
   @override
-  Set<FilterKind> get supportedFilters => const {FilterKind.round, FilterKind.airDate};
+  Set<FilterKind> get supportedFilters =>
+      const {FilterKind.round, FilterKind.airDate, FilterKind.boardRow};
 
   @override
   Future<void> open() async {
@@ -85,6 +91,19 @@ class LocalQuestionSource extends QuestionSource {
     if (filter.to != null) {
       where.add('g.air_date <= ?');
       args.add(isoDate(filter.to!));
+    }
+    final boardRows = filter.boardRows;
+    if (boardRows != null) {
+      if (boardRows.isEmpty) {
+        where.add('c.round = 3');
+      } else {
+        // Final Jeopardy has no row, and passes whenever its round does.
+        final rows = List.filled(boardRows.length, '?').join(', ');
+        where.add('(c.round = 3 OR '
+            '(c.value % $_rowBase = 0 AND c.value / $_rowBase IN ($rows)))');
+        final doubledOn = isoDate(JeopardyQuestion.valuesDoubledOn);
+        args.addAll([doubledOn, doubledOn, ...boardRows]);
+      }
     }
     final sql = '$_select WHERE ${where.join(' AND ')} ORDER BY c.id LIMIT 1';
 

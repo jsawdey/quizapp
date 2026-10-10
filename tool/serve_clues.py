@@ -17,7 +17,7 @@ flutter build web --no-web-resources-cdn, browsers can play at
 http://<this computer>:8080/.
 
 API (docs/question-backend-plan.md section 7):
-    GET  /v1/random?count=10[&round=1,2][&from=YYYY-MM-DD][&to=YYYY-MM-DD]
+    GET  /v1/random?count=10[&round=1,2][&from=YYYY-MM-DD][&to=YYYY-MM-DD][&row=4,5]
          (an empty "questions" list when nothing matches the filters)
     POST /v1/questions/{key}/report
 
@@ -56,6 +56,13 @@ MAX_COUNT = 50
 DEFAULT_COUNT = 10
 # Random picks to try per requested clue before returning fewer than asked.
 ATTEMPTS_PER_CLUE = 5
+
+# The day clue values doubled. A clue's board row (1 top to 5 bottom) is its
+# value over its round's top-row value, which doubled then; as
+# JeopardyQuestion.boardRow in the app.
+VALUES_DOUBLED_ON = '2001-11-26'
+ROW_BASE = ('(CASE c.round WHEN 1 THEN 100 ELSE 200 END '
+            '* CASE WHEN g.air_date >= ? THEN 2 ELSE 1 END)')
 
 SELECT = '''
     SELECT c.id, c.clue_key, c.round, c.value, c.dd_wager, c.category_comment,
@@ -149,7 +156,7 @@ class ClueStore:
             self._id_ranges[key] = bounds
         return bounds
 
-    def random(self, count, rounds=None, date_from=None, date_to=None):
+    def random(self, count, rounds=None, date_from=None, date_to=None, rows=None):
         if self.max_id == 0:
             return []
         where, args = ['c.id >= ?', 'c.id <= ?'], []
@@ -164,6 +171,11 @@ class ClueStore:
         if date_to is not None:
             where.append('g.air_date <= ?')
             args.append(date_to)
+        if rows is not None:
+            # Final Jeopardy has no row, and passes whenever its round does.
+            where.append(f'(c.round = 3 OR (c.value % {ROW_BASE} = 0 '
+                         f'AND c.value / {ROW_BASE} IN ({", ".join("?" * len(rows))})))')
+            args.extend([VALUES_DOUBLED_ON, VALUES_DOUBLED_ON, *sorted(rows)])
         sql = f'{SELECT} WHERE {" AND ".join(where)} ORDER BY c.id LIMIT 1'
 
         found = {}
@@ -233,6 +245,14 @@ def parse_random_query(query):
             raise BadRequest('round must be a comma-separated list of 1, 2 and 3')
         if not rounds <= {1, 2, 3}:
             raise BadRequest('round must be a comma-separated list of 1, 2 and 3')
+    rows = None
+    if params.get('row'):
+        try:
+            rows = {int(r) for r in params['row'].split(',')}
+        except ValueError:
+            raise BadRequest('row must be a comma-separated list of 1 to 5')
+        if not rows <= {1, 2, 3, 4, 5}:
+            raise BadRequest('row must be a comma-separated list of 1 to 5')
     dates = {}
     for name in ('from', 'to'):
         if params.get(name):
@@ -240,7 +260,7 @@ def parse_random_query(query):
                 dates[name] = datetime.date.fromisoformat(params[name]).isoformat()
             except ValueError:
                 raise BadRequest(f'{name} must be a date like 2004-03-01')
-    return min(count, MAX_COUNT), rounds, dates.get('from'), dates.get('to')
+    return min(count, MAX_COUNT), rounds, dates.get('from'), dates.get('to'), rows
 
 
 def web_file(root, url_path):
@@ -301,8 +321,8 @@ def make_handler(store, token=None, quiet=False, web_root=None):
                 if parts == ['v1', 'random']:
                     if method != 'GET':
                         return self._not_allowed('GET')
-                    count, rounds, date_from, date_to = parse_random_query(url.query)
-                    questions = store.random(count, rounds, date_from, date_to)
+                    count, rounds, date_from, date_to, rows = parse_random_query(url.query)
+                    questions = store.random(count, rounds, date_from, date_to, rows)
                     return self._send_json(HTTPStatus.OK,
                                            {'namespace': store.namespace, 'questions': questions})
                 if len(parts) == 4 and parts[:2] == ['v1', 'questions'] and parts[3] == 'report':

@@ -10,15 +10,16 @@ import 'support/fakes.dart';
 
 void main() {
   const both = {FilterKind.round, FilterKind.airDate};
+  const all = {FilterKind.round, FilterKind.airDate, FilterKind.boardRow};
   final base = Uri.parse('https://example.com');
 
-  test('the local database supports rounds and dates', () {
-    expect(LocalQuestionSource().supportedFilters, both);
+  test('the local database supports every filter', () {
+    expect(LocalQuestionSource().supportedFilters, all);
   });
 
   test('an API source supports what its dialect does', () {
     expect(HttpQuestionSource(baseUrl: base, dialect: QuizApiDialect()).supportedFilters,
-        both);
+        all);
     expect(HttpQuestionSource(baseUrl: base, dialect: JServiceDialect()).supportedFilters,
         isEmpty);
   });
@@ -44,5 +45,8 @@ void main() {
     expect(filter.limitedTo({FilterKind.airDate}),
         QuestionFilter(from: DateTime(1990), to: DateTime(1999)));
     expect(filter.limitedTo({}), QuestionFilter.any);
+    const rows = QuestionFilter(boardRows: {4, 5});
+    expect(rows.limitedTo(all), rows);
+    expect(rows.limitedTo(both), QuestionFilter.any);
   });
 }

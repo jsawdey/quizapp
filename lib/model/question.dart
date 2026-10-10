@@ -33,6 +33,23 @@ class JeopardyQuestion {
 
   bool get isFinalJeopardy => round == 3;
 
+  /// The day clue values doubled, from $100–$500 to $200–$1,000 in Jeopardy!
+  /// and from $200–$1,000 to $400–$2,000 in Double Jeopardy!.
+  static final valuesDoubledOn = DateTime(2001, 11, 26);
+
+  /// The clue's row on the board, from 1 (top) to 5 (bottom): its value over
+  /// the round's base, which [valuesDoubledOn] doubled. Daily Doubles keep
+  /// their board value, so they have a row too. Null for Final Jeopardy, and
+  /// when the value, round or air date is missing or doesn't fit a row.
+  int? get boardRow {
+    final value = this.value;
+    final airDate = this.airDate;
+    if (value == null || airDate == null || (round != 1 && round != 2)) return null;
+    final base = (round == 1 ? 100 : 200) * (airDate.isBefore(valuesDoubledOn) ? 1 : 2);
+    final row = value ~/ base;
+    return value % base == 0 && row >= 1 && row <= 5 ? row : null;
+  }
+
   /// Strips `<i>` tags and stray backslashes from text that wasn't cleaned
   /// before it reached the app (API data).
   static String sanitize(String text) {

@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -149,6 +151,31 @@ void main() {
             throwsA(isA<NoQuestionFound>()));
       }
     });
+  });
+
+  test('board rows match the shared examples, and Final Jeopardy passes', () async {
+    // The same examples check JeopardyQuestion.boardRow and serve_clues.py.
+    final examples = (json.decode(File('test/support/board_rows.json').readAsStringSync())
+        as List<dynamic>).cast<Map<String, dynamic>>()
+      ..sort((a, b) => (a['air_date'] as String).compareTo(b['air_date'] as String));
+    await db.close();
+    db = await createClueDb(clues: [
+      for (var i = 0; i < examples.length; i++)
+        FixtureClue(i + 1, examples[i]['air_date'] as String, 'CATEGORY',
+            examples[i]['round'] as int, examples[i]['value'] as int),
+    ]);
+    for (var row = 1; row <= 5; row++) {
+      // Starting from every id finds every clue that matches.
+      final source = await open([for (var i = 0; i < examples.length; i++) i]);
+      final found = {
+        for (var i = 0; i < examples.length; i++)
+          (await source.randomQuestion(filter: QuestionFilter(boardRows: {row}))).key
+      };
+      expect(found, {
+        for (var i = 0; i < examples.length; i++)
+          if (examples[i]['row'] == row || examples[i]['round'] == 3) '${i + 1}'
+      }, reason: 'row $row');
+    }
   });
 
   test('no match is NoQuestionFound', () async {

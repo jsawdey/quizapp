@@ -10,6 +10,9 @@ enum FilterKind {
 
   /// [QuestionFilter.from] and [QuestionFilter.to].
   airDate,
+
+  /// [QuestionFilter.boardRows].
+  boardRow,
 }
 
 /// Narrows which clues a source may return. Sources that can't filter on the
@@ -19,18 +22,28 @@ class QuestionFilter {
   final DateTime? from;
   final DateTime? to;
 
-  const QuestionFilter({this.rounds, this.from, this.to});
+  /// Rows on the board, 1 (top) to 5 (bottom); see [JeopardyQuestion.boardRow].
+  /// Only narrows Jeopardy! and Double Jeopardy! clues: Final Jeopardy! has
+  /// no row, and passes whenever its round does.
+  final Set<int>? boardRows;
+
+  const QuestionFilter({this.rounds, this.from, this.to, this.boardRows});
 
   static const any = QuestionFilter();
 
   /// Jeopardy!, Double Jeopardy! and Final Jeopardy!.
   static const allRounds = {1, 2, 3};
 
-  /// This filter with "every round" written as no round filter, so a filter
-  /// that lets everything through equals [any].
+  /// Every row on the board, top to bottom.
+  static const allBoardRows = {1, 2, 3, 4, 5};
+
+  /// This filter with "every round" and "every row" written as no filter, so
+  /// a filter that lets everything through equals [any].
   QuestionFilter normalized() => QuestionFilter(
       rounds: rounds != null && rounds!.containsAll(allRounds) ? null : rounds,
-      from: from, to: to);
+      from: from, to: to,
+      boardRows: boardRows != null && boardRows!.containsAll(allBoardRows)
+          ? null : boardRows);
 
   /// Whether this filter narrows anything.
   bool get isAny => this == any;
@@ -40,7 +53,8 @@ class QuestionFilter {
   QuestionFilter limitedTo(Set<FilterKind> kinds) => QuestionFilter(
       rounds: kinds.contains(FilterKind.round) ? rounds : null,
       from: kinds.contains(FilterKind.airDate) ? from : null,
-      to: kinds.contains(FilterKind.airDate) ? to : null);
+      to: kinds.contains(FilterKind.airDate) ? to : null,
+      boardRows: kinds.contains(FilterKind.boardRow) ? boardRows : null);
 
   bool matches(JeopardyQuestion q) {
     final rounds = this.rounds;
@@ -48,17 +62,22 @@ class QuestionFilter {
     final airDate = q.airDate;
     if (from != null && (airDate == null || airDate.isBefore(from!))) return false;
     if (to != null && (airDate == null || airDate.isAfter(to!))) return false;
+    final boardRows = this.boardRows;
+    if (boardRows != null && !q.isFinalJeopardy && !boardRows.contains(q.boardRow)) {
+      return false;
+    }
     return true;
   }
 
   @override
   bool operator ==(Object other) =>
       other is QuestionFilter && setEquals(rounds, other.rounds) &&
-      from == other.from && to == other.to;
+      from == other.from && to == other.to && setEquals(boardRows, other.boardRows);
 
   @override
   int get hashCode => Object.hash(
-      rounds == null ? null : Object.hashAllUnordered(rounds!), from, to);
+      rounds == null ? null : Object.hashAllUnordered(rounds!), from, to,
+      boardRows == null ? null : Object.hashAllUnordered(boardRows!));
 }
 
 /// [date] as `YYYY-MM-DD`, the format air dates use in filters and the

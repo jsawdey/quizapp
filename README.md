@@ -70,11 +70,14 @@ serving the same dataset.
 ## Filtering clues
 
 The filter button in the app bar (or F on a keyboard) picks which rounds to
-play (Jeopardy!, Double Jeopardy! and Final Jeopardy!) and a range of years
-the clues aired. Apply loads a matching clue straight away, and the filter is
-kept between launches. While a filter is on, the button is filled in and its
-tooltip says which filter it is. If no clue matches, the board offers to change
-or clear the filters.
+play (Jeopardy!, Double Jeopardy! and Final Jeopardy!), a range of years the
+clues aired, and a difficulty: the clue's row on the board, from 1 (top) to 5
+(bottom). Rows mean the same thing before and after clue values doubled in
+2001, Daily Doubles count in their row, and Final Jeopardy has no row, so that
+filter leaves it alone. Apply loads a matching clue straight away, and the
+filter is kept between launches. While a filter is on, the button is filled in
+and its tooltip says which filter it is. If no clue matches, the board offers
+to change or clear the filters.
 
 Filters work with the local database and the `quizapp` API. A jService API
 can't filter, so the button isn't shown for it, and with

@@ -338,21 +338,36 @@ has one "Difficulty" section and shows whichever kind the source supports.
 
 ## 9. Suggested commit order
 
-1. **Fair random picks under filters.** §2 in `LocalQuestionSource`,
+1. ~~**Fair random picks under filters.** §2 in `LocalQuestionSource`,
    `serve_clues.py` and `build_clue_db.py`, plus their tests. This needs no
    UI and fixes a real bug for anyone already sending `from`/`to` to the
-   server.
-2. **`supportedFilters`**, on the sources and dialects, plus tests.
-3. **`FilterStore` and `QuestionRepository.setFilter`**, plus tests.
-4. **Filter sheet, app bar button and no-match state**, plus widget tests.
-5. **Keyboard shortcut, README**, and a manual check in a browser (Playwright,
+   server.~~ (done. The binary search compares air dates directly, so it only
+   relies on clue order. Rebuilding v42 with the sort gave the same ids, keys,
+   game ids and category ids as before. On the real database, 200 picks from
+   2010–2014 went from 35 distinct clues to more than 190.)
+2. ~~**`supportedFilters`**, on the sources and dialects, plus tests.~~ (done,
+   with `QuestionFilter.limitedTo`)
+3. ~~**`FilterStore` and `QuestionRepository.setFilter`**, plus tests.~~ (done.
+   A filter chosen while the repository is still opening wins over the saved
+   one, and a saved filter that can't be read leaves questions unfiltered.)
+4. ~~**Filter sheet, app bar button and no-match state**, plus widget
+   tests.~~ (done)
+5. ~~**Keyboard shortcut, README**, and a manual check in a browser (Playwright,
    as for the web UI). Set a filter, reload, see it kept, and get a clue from
-   the range. Then pick an empty range and use Clear filters.
+   the range. Then pick an empty range and use Clear filters.~~ (done. Every
+   year since 1984 has games, so no year range is empty on the real data; the
+   no-match part was checked against the Python tests' 6-clue sample
+   database. Headless Chromium needs a locale, such as Playwright's
+   `locale: 'en-US'`: without one the page fails at start with "Incorrect
+   locale information provided".)
 
-6. **Difficulty by board row** (§8): `boardRow`, `QuestionFilter.boardRows`,
+6. ~~**Difficulty by board row** (§8): `boardRow`, `QuestionFilter.boardRows`,
    the SQL in both places, the `row` API parameter, the sheet section and
    tests. This is a separate commit after the main feature has landed, so
-   it can be reviewed and tried on its own.
+   it can be reviewed and tried on its own.~~ (done. The shared examples are
+   `test/support/board_rows.json`. In Chromium, row 5 against the new server
+   returned only bottom-row clues from both eras. Against a server started
+   before the `row` parameter existed, the app still showed only row-4 clues.)
 
 Commits 1–4 are the feature. Commit 1 is worth landing even if the rest
 slips. Commit 6 is the planned follow-up.

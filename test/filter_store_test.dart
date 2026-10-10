@@ -5,7 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 void main() {
   final nineties = QuestionFilter(rounds: const {1, 2},
-      from: DateTime(1990), to: DateTime(1999, 12, 31));
+      from: DateTime(1990), to: DateTime(1999, 12, 31), boardRows: const {4, 5});
 
   group('SharedPrefsFilterStore', () {
     setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -19,7 +19,7 @@ void main() {
       expect(await SharedPrefsFilterStore().read(), nineties);
       final prefs = await SharedPreferences.getInstance();
       expect(prefs.getString(SharedPrefsFilterStore.prefsKey),
-          '{"rounds":[1,2],"from":"1990-01-01","to":"1999-12-31"}');
+          '{"rounds":[1,2],"from":"1990-01-01","to":"1999-12-31","rows":[4,5]}');
     });
 
     test('saving any removes the saved filter', () async {
@@ -44,6 +44,9 @@ void main() {
       expect(decodeFilter('{"rounds":[3],"to":"soon"}'), const QuestionFilter(rounds: {3}));
       expect(decodeFilter('{"rounds":["one"],"to":"2001-12-31"}'),
           QuestionFilter(to: DateTime(2001, 12, 31)));
+      // Saved before board rows existed: any row.
+      expect(decodeFilter('{"rounds":[3]}').boardRows, isNull);
+      expect(decodeFilter('{"rows":[5,"x"]}'), QuestionFilter.any);
     });
 
     test('reads anything unexpected as any', () {

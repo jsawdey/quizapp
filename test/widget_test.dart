@@ -384,13 +384,13 @@ void main() {
   });
 
   group('filters', () {
-    const both = {FilterKind.round, FilterKind.airDate};
+    const all = {FilterKind.round, FilterKind.airDate, FilterKind.boardRow};
     final nineties = QuestionFilter(from: DateTime(1990), to: DateTime(1999, 12, 31));
     late InMemoryFilterStore store;
 
     setUp(() {
       source = FakeQuestionSource([fakeQuestion('1'), fakeQuestion('2')],
-          supportedFilters: both);
+          supportedFilters: all);
       store = InMemoryFilterStore();
     });
 
@@ -413,6 +413,13 @@ void main() {
 
     FilterChip chip(WidgetTester tester, String label) =>
         tester.widget<FilterChip>(find.widgetWithText(FilterChip, label));
+
+    Future<void> tapChip(WidgetTester tester, String label) async {
+      final finder = find.widgetWithText(FilterChip, label);
+      await tester.ensureVisible(finder);
+      await tester.tap(finder);
+      await tester.pump();
+    }
 
     testWidgets('no button when the source supports no filters', (WidgetTester tester) async {
       source = FakeQuestionSource([fakeQuestion('1')]);
@@ -500,12 +507,49 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    testWidgets('choosing board rows', (WidgetTester tester) async {
+      await pumpFiltered(tester);
+      await openSheet(tester);
+      expect(find.text('Difficulty'), findsOneWidget);
+      for (final row in ['1', '2', '3']) {
+        await tapChip(tester, row);
+      }
+      await apply(tester);
+      expect(store.filter, const QuestionFilter(boardRows: {4, 5}));
+      expect(source.lastFilter, const QuestionFilter(boardRows: {4, 5}));
+      expect(find.byTooltip('Filters: rows 4–5'), findsOneWidget);
+    });
+
+    testWidgets('the last board row can\'t be turned off', (WidgetTester tester) async {
+      store.filter = const QuestionFilter(boardRows: {5});
+      await pumpFiltered(tester);
+      await openSheet(tester);
+      expect(chip(tester, '5').onSelected, isNull);
+      expect(chip(tester, '4').onSelected, isNotNull);
+    });
+
+    testWidgets('board rows are off when only Final Jeopardy is chosen',
+        (WidgetTester tester) async {
+      store.filter = const QuestionFilter(boardRows: {4, 5});
+      await pumpFiltered(tester);
+      await openSheet(tester);
+      await tapChip(tester, 'Jeopardy!');
+      await tapChip(tester, 'Double Jeopardy!');
+      expect(find.text('Final Jeopardy has no board row.'), findsOneWidget);
+      for (final row in ['1', '2', '3', '4', '5']) {
+        expect(chip(tester, row).onSelected, isNull, reason: row);
+      }
+      await apply(tester);
+      expect(store.filter, const QuestionFilter(rounds: {3}));
+    });
+
     testWidgets('the sheet only offers what the source supports', (WidgetTester tester) async {
       source = FakeQuestionSource([fakeQuestion('1')], supportedFilters: {FilterKind.airDate});
       await pumpFiltered(tester);
       await openSheet(tester);
       expect(find.text('Years'), findsOneWidget);
       expect(find.byType(FilterChip), findsNothing);
+      expect(find.text('Difficulty'), findsNothing);
     });
 
     testWidgets('with no match, offers to change or clear the filters',

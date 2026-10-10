@@ -25,6 +25,17 @@ String describeFilter(QuestionFilter filter) {
   } else if (to != null) {
     parts.add('to $to');
   }
+  final boardRows = filter.boardRows;
+  if (boardRows != null && boardRows.isNotEmpty) {
+    final rows = boardRows.toList()..sort();
+    if (rows.length == 1) {
+      parts.add('row ${rows.single}');
+    } else if (rows.last - rows.first == rows.length - 1) {
+      parts.add('rows ${rows.first}–${rows.last}');
+    } else {
+      parts.add('rows ${rows.join(', ')}');
+    }
+  }
   return parts.join(', ');
 }
 
@@ -41,7 +52,8 @@ Future<QuestionFilter?> showFilterSheet(BuildContext context,
           lastYear: lastYear ?? DateTime.now().year),
     );
 
-/// Round chips and a range of years. Apply pops the chosen filter.
+/// Round chips, a range of years and board-row chips. Apply pops the chosen
+/// filter.
 class FilterSheet extends StatefulWidget {
   const FilterSheet({super.key, required this.current, required this.supported,
     required this.lastYear});
@@ -59,6 +71,7 @@ class FilterSheet extends StatefulWidget {
 class _FilterSheetState extends State<FilterSheet> {
   late Set<int> _rounds;
   late RangeValues _years;
+  late Set<int> _boardRows;
 
   int get _lastYear => widget.lastYear;
 
@@ -70,10 +83,14 @@ class _FilterSheetState extends State<FilterSheet> {
 
   void _show(QuestionFilter filter) {
     _rounds = {...filter.rounds ?? QuestionFilter.allRounds};
+    _boardRows = {...filter.boardRows ?? QuestionFilter.allBoardRows};
     double year(DateTime? date, int otherwise) =>
         (date?.year ?? otherwise).clamp(firstFilterYear, _lastYear).toDouble();
     _years = RangeValues(year(filter.from, firstFilterYear), year(filter.to, _lastYear));
   }
+
+  /// Whether only Final Jeopardy is chosen, which has no board row.
+  bool get _onlyFinal => _rounds.length == 1 && _rounds.contains(3);
 
   /// The filter shown, with the slider's ends meaning "no limit".
   QuestionFilter get _chosen {
@@ -83,16 +100,28 @@ class _FilterSheetState extends State<FilterSheet> {
       rounds: _rounds,
       from: from == firstFilterYear ? null : DateTime(from),
       to: to == _lastYear ? null : DateTime(to, 12, 31),
+      boardRows: _onlyFinal ? null : _boardRows,
     ).normalized().limitedTo(widget.supported);
   }
 
-  void _toggleRound(int round, bool selected) => setState(() {
+  void _toggle(Set<int> chosen, int value, bool selected) => setState(() {
     if (selected) {
-      _rounds.add(round);
+      chosen.add(value);
     } else {
-      _rounds.remove(round);
+      chosen.remove(value);
     }
   });
+
+  /// A chip for [value] in [chosen]. The last chosen one can't be turned
+  /// off, since choosing none would match nothing.
+  Widget _chip(String label, Set<int> chosen, int value, {bool enabled = true}) =>
+      FilterChip(
+        label: Text(label),
+        selected: chosen.contains(value),
+        onSelected: !enabled || (chosen.length == 1 && chosen.contains(value))
+            ? null
+            : (selected) => _toggle(chosen, value, selected),
+      );
 
   String get _yearsText {
     final from = _years.start.round();
@@ -107,6 +136,7 @@ class _FilterSheetState extends State<FilterSheet> {
     final heading = theme.textTheme.titleMedium;
     final showRounds = widget.supported.contains(FilterKind.round);
     final showYears = widget.supported.contains(FilterKind.airDate);
+    final showRows = widget.supported.contains(FilterKind.boardRow);
     return SafeArea(
       child: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(24.0, 16.0, 24.0, 8.0),
@@ -124,14 +154,7 @@ class _FilterSheetState extends State<FilterSheet> {
                 runSpacing: 4.0,
                 children: <Widget>[
                   for (final MapEntry(key: round, value: name) in _roundNames.entries)
-                    FilterChip(
-                      label: Text(name),
-                      selected: _rounds.contains(round),
-                      // No rounds can't match anything, so the last one stays on.
-                      onSelected: _rounds.length == 1 && _rounds.contains(round)
-                          ? null
-                          : (selected) => _toggleRound(round, selected),
-                    ),
+                    _chip(name, _rounds, round),
                 ],
               ),
             ],
@@ -151,6 +174,24 @@ class _FilterSheetState extends State<FilterSheet> {
                 labels: RangeLabels('${_years.start.round()}', '${_years.end.round()}'),
                 onChanged: (values) => setState(() => _years = values),
               ),
+            ],
+            if (showRows) ...[
+              const SizedBox(height: 8.0),
+              Text('Difficulty', style: heading),
+              const SizedBox(height: 8.0),
+              Wrap(
+                spacing: 8.0,
+                runSpacing: 4.0,
+                children: <Widget>[
+                  for (final row in QuestionFilter.allBoardRows)
+                    _chip('$row', _boardRows, row, enabled: !_onlyFinal),
+                ],
+              ),
+              const SizedBox(height: 4.0),
+              Text(_onlyFinal
+                  ? 'Final Jeopardy has no board row.'
+                  : 'Row on the board: 1 is the top row, 5 the bottom.',
+                  style: theme.textTheme.bodySmall),
             ],
             const SizedBox(height: 8.0),
             Row(
