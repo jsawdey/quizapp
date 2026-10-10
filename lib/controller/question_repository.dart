@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:quizapp/data/fallback_question_source.dart';
+import 'package:quizapp/data/filter_store.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
@@ -22,10 +23,15 @@ class QuestionRepository {
   /// instead of compiling it in.
   final TokenStore? tokenStore;
   final ApiCredentials? credentials;
+
+  /// Where the filter chosen in the app is kept between launches.
+  final FilterStore? filterStore;
+  QuestionFilter _filter = QuestionFilter.any;
+  bool _filterChosen = false;
   Future<void>? _opening;
 
   QuestionRepository({required this.source, required this.hiddenStore,
-    this.tokenStore, this.credentials});
+    this.tokenStore, this.credentials, this.filterStore});
 
   /// Opens the source and the hidden-question store. Safe to call more than
   /// once; a failed open is retried on the next call.
@@ -38,6 +44,7 @@ class QuestionRepository {
       if (tokenStore != null && credentials != null) {
         credentials.token = await tokenStore.read() ?? credentials.token;
       }
+      await _readFilter();
       await Future.wait([source.open(), hiddenStore.open()]);
     } catch (_) {
       _opening = null;
@@ -45,11 +52,44 @@ class QuestionRepository {
     }
   }
 
-  /// Throws [SourceUnavailable] or [NoQuestionFound].
-  Future<JeopardyQuestion> next({QuestionFilter filter = QuestionFilter.any}) async {
+  /// Loads the saved filter, unless one was chosen while opening. A filter
+  /// that can't be read is only logged: questions still load, unfiltered.
+  Future<void> _readFilter() async {
+    final filterStore = this.filterStore;
+    if (filterStore == null || _filterChosen) return;
+    try {
+      final saved = await filterStore.read();
+      if (!_filterChosen) _filter = _usable(saved);
+    } catch (error) {
+      debugPrint('Could not read the saved filter: $error');
+    }
+  }
+
+  QuestionFilter _usable(QuestionFilter filter) =>
+      filter.normalized().limitedTo(source.supportedFilters);
+
+  /// The filters the source can apply; the app offers only these.
+  Set<FilterKind> get supportedFilters => source.supportedFilters;
+
+  /// The filter [next] applies: the one last chosen, or the saved one once
+  /// the repository is open, without anything the source can't apply.
+  QuestionFilter get filter => _filter;
+
+  /// Uses [filter] from the next question on, and saves it. A failed save is
+  /// thrown, but the filter still applies until the app closes.
+  Future<void> setFilter(QuestionFilter filter) async {
+    _filter = _usable(filter);
+    _filterChosen = true;
+    await filterStore?.write(_filter);
+  }
+
+  /// Throws [SourceUnavailable] or [NoQuestionFound]. Uses [filter] if
+  /// given, else [QuestionRepository.filter].
+  Future<JeopardyQuestion> next({QuestionFilter? filter}) async {
     await open();
+    final using = filter ?? _filter;
     for (var attempt = 0; attempt < maxAttempts; attempt++) {
-      final question = await source.randomQuestion(filter: filter);
+      final question = await source.randomQuestion(filter: using);
       if (!hiddenStore.isHidden(question)) return question;
     }
     throw const NoQuestionFound('Every question tried has been hidden.');

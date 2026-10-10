@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:quizapp/controller/question_repository.dart';
+import 'package:quizapp/data/filter_store.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
@@ -124,4 +125,83 @@ void main() {
       expect(await SharedPrefsTokenStore().read(), 's3cret');
     });
   });
+
+  group('filter', () {
+    const both = {FilterKind.round, FilterKind.airDate};
+    final nineties = QuestionFilter(from: DateTime(1990), to: DateTime(1999, 12, 31));
+
+    QuestionRepository filtered(FakeQuestionSource source, FilterStore store) =>
+        QuestionRepository(source: source, hiddenStore: hidden, filterStore: store);
+
+    test('is any until one is chosen', () async {
+      final source = FakeQuestionSource([fakeQuestion('1')], supportedFilters: both);
+      final repository = filtered(source, InMemoryFilterStore());
+      await repository.next();
+      expect(repository.filter, QuestionFilter.any);
+      expect(source.lastFilter, QuestionFilter.any);
+    });
+
+    test('setFilter saves it and uses it for the next question', () async {
+      final source = FakeQuestionSource([fakeQuestion('1')], supportedFilters: both);
+      final store = InMemoryFilterStore();
+      final repository = filtered(source, store);
+      await repository.setFilter(nineties);
+      expect(store.filter, nineties);
+      await repository.next();
+      expect(source.lastFilter, nineties);
+    });
+
+    test('a saved filter is used once the repository opens', () async {
+      final source = FakeQuestionSource([fakeQuestion('1')], supportedFilters: both);
+      final repository = filtered(source, InMemoryFilterStore(nineties));
+      await repository.next();
+      expect(repository.filter, nineties);
+      expect(source.lastFilter, nineties);
+    });
+
+    test('a filter chosen before opening wins over the saved one', () async {
+      final source = FakeQuestionSource([fakeQuestion('1')], supportedFilters: both);
+      final repository = filtered(source, InMemoryFilterStore(nineties));
+      await repository.setFilter(const QuestionFilter(rounds: {3}));
+      await repository.next();
+      expect(source.lastFilter, const QuestionFilter(rounds: {3}));
+    });
+
+    test('drops what the source can\'t apply, and normalises', () async {
+      final source = FakeQuestionSource([fakeQuestion('1')],
+          supportedFilters: {FilterKind.airDate});
+      final repository = filtered(source,
+          InMemoryFilterStore(QuestionFilter(rounds: const {3}, from: DateTime(1990))));
+      await repository.next();
+      expect(source.lastFilter, QuestionFilter(from: DateTime(1990)));
+
+      final both = FakeQuestionSource([fakeQuestion('1')],
+          supportedFilters: const {FilterKind.round, FilterKind.airDate});
+      final store = InMemoryFilterStore();
+      await filtered(both, store).setFilter(const QuestionFilter(rounds: {1, 2, 3}));
+      expect(store.filter, QuestionFilter.any);
+    });
+
+    test('an explicit filter overrides the chosen one', () async {
+      final source = FakeQuestionSource([fakeQuestion('1')], supportedFilters: both);
+      final repository = filtered(source, InMemoryFilterStore(nineties));
+      await repository.next(filter: QuestionFilter.any);
+      expect(source.lastFilter, QuestionFilter.any);
+    });
+
+    test('a filter that can\'t be read leaves questions unfiltered', () async {
+      final source = FakeQuestionSource([fakeQuestion('1')], supportedFilters: both);
+      final repository = filtered(source, _BrokenFilterStore());
+      expect((await repository.next()).key, '1');
+      expect(source.lastFilter, QuestionFilter.any);
+    });
+  });
+}
+
+class _BrokenFilterStore implements FilterStore {
+  @override
+  Future<QuestionFilter> read() async => throw StateError('storage is broken');
+
+  @override
+  Future<void> write(QuestionFilter filter) async => throw StateError('storage is broken');
 }

@@ -23,6 +23,18 @@ class QuestionFilter {
 
   static const any = QuestionFilter();
 
+  /// Jeopardy!, Double Jeopardy! and Final Jeopardy!.
+  static const allRounds = {1, 2, 3};
+
+  /// This filter with "every round" written as no round filter, so a filter
+  /// that lets everything through equals [any].
+  QuestionFilter normalized() => QuestionFilter(
+      rounds: rounds != null && rounds!.containsAll(allRounds) ? null : rounds,
+      from: from, to: to);
+
+  /// Whether this filter narrows anything.
+  bool get isAny => this == any;
+
   /// This filter without the parts a source supporting only [kinds] can't
   /// apply, so a filter saved under one source can't empty another.
   QuestionFilter limitedTo(Set<FilterKind> kinds) => QuestionFilter(
