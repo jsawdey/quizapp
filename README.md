@@ -17,6 +17,10 @@ Because of the dataset's terms, this app is for personal use only.
 For help getting started with Flutter, view our online
 [documentation](https://flutter.io/).
 
+It also runs as a Linux desktop app (`flutter run -d linux`), with the local
+databases. That needs Flutter's Linux toolchain: on Ubuntu or Debian,
+`sudo apt install clang cmake ninja-build pkg-config libgtk-3-dev`.
+
 ## Building the clue database
 
 Questions come from a local SQLite database built from the
