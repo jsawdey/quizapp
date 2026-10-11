@@ -1123,6 +1123,140 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
+    group('Got it and Missed it', () {
+      final clue1 = fakeQuestion('1', round: 1, value: 200);
+      final clue2 = fakeQuestion('2', round: 1, value: 400);
+      Finder gotIt() => find.byKey(const ValueKey('got-it'));
+      Finder missedIt() => find.byKey(const ValueKey('missed-it'));
+
+      setUp(() => source = FakeQuestionSource([clue1, clue2]));
+
+      Future<void> flip(WidgetTester tester) async {
+        await tester.tap(find.byType(QuestionAnswerWidget));
+        await tester.pump();
+      }
+
+      testWidgets('show once the response does, and a change of mind replaces the result',
+          (WidgetTester tester) async {
+        await pumpScored(tester);
+        expect(find.text('Got it'), findsNothing);
+
+        await flip(tester);
+        expect(find.text('RESPONSE 1'), findsOneWidget);
+        expect(find.text('Got it'), findsOneWidget);
+        expect(find.text('Missed it'), findsOneWidget);
+        expect(find.text('1'), findsNothing, reason: 'no number labels without a keyboard');
+
+        await tester.tap(gotIt());
+        await tester.pump();
+        expect(scoreLine('1/1 right · streak 1 · \$200'), findsOneWidget);
+        expect(find.byIcon(Icons.check), findsOneWidget);
+        expect(find.byIcon(Icons.close), findsNothing);
+
+        await tester.tap(missedIt());
+        await tester.pump();
+        expect(scoreLine('0/1 right · streak 0 · −\$200'), findsOneWidget);
+        expect(find.byIcon(Icons.check), findsNothing);
+        expect(find.byIcon(Icons.close), findsOneWidget);
+        expect(find.bySemanticsLabel(RegExp(r'^Missed it\s+Chosen$')), findsOneWidget);
+
+        await tester.tap(gotIt());
+        await tester.pump();
+        expect(scoreLine('1/1 right · streak 1 · \$200'), findsOneWidget);
+        expect(scores.score.answered, 1);
+
+        // Flipping back keeps the result in view.
+        await flip(tester);
+        expect(find.text('CLUE 1'), findsOneWidget);
+        expect(find.byIcon(Icons.check), findsOneWidget);
+
+        // Answered, so moving on keeps the streak, and the next clue starts fresh.
+        await next(tester);
+        expect(find.text('CLUE 2'), findsOneWidget);
+        expect(find.text('Got it'), findsNothing);
+        expect(keeper.score.streak, 1);
+      });
+
+      testWidgets('the card keeps its size when the response shows', (WidgetTester tester) async {
+        await pumpScored(tester);
+        Size card() => tester.getSize(find.ancestor(of: find.byType(QuestionAnswerWidget),
+            matching: find.byType(QuizDecorationWrapper)));
+        final before = card();
+        await flip(tester);
+        expect(card(), before);
+      });
+
+      testWidgets('keys 1 and 2 answer once the response shows', (WidgetTester tester) async {
+        await pumpScored(tester);
+        expect(await tester.sendKeyEvent(LogicalKeyboardKey.digit1), isFalse);
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.space);
+        await tester.pump();
+        expect(await tester.sendKeyEvent(LogicalKeyboardKey.digit3), isFalse);
+        await tester.sendKeyEvent(LogicalKeyboardKey.digit1);
+        await tester.pump();
+        expect(keeper.score.right, 1);
+        await tester.sendKeyEvent(LogicalKeyboardKey.digit2);
+        await tester.pump();
+        expect(keeper.score.right, 0);
+        expect(keeper.score.answered, 1);
+      });
+
+      testWidgets('are numbered, and the tooltip says so, with a keyboard',
+          (WidgetTester tester) async {
+        await pumpScored(tester);
+        String tooltip() =>
+            tester.widget<FloatingActionButton>(find.byType(FloatingActionButton)).tooltip!;
+        expect(tooltip(), isNot(contains('1 or 2')));
+        await flip(tester);
+        expect(find.descendant(of: find.byType(SelfReportWidget), matching: find.text('1')),
+            findsOneWidget);
+        expect(find.descendant(of: find.byType(SelfReportWidget), matching: find.text('2')),
+            findsOneWidget);
+        expect(tooltip(), contains('; 1 or 2 says whether you got it.'));
+      }, variant: TargetPlatformVariant.only(TargetPlatform.linux));
+
+      testWidgets('don\'t count while the next question loads', (WidgetTester tester) async {
+        await pumpScored(tester);
+        await flip(tester);
+        final gate = Completer<void>();
+        source.gate = gate.future;
+        await next(tester);
+        await tester.tap(gotIt());
+        await tester.pump();
+        expect(keeper.score.answered, 0);
+        gate.complete();
+        await tester.pump();
+        expect(find.text('CLUE 2'), findsOneWidget);
+      });
+
+      testWidgets('aren\'t offered for multiple choice', (WidgetTester tester) async {
+        source = FakeQuestionSource([capital]);
+        await pumpScored(tester);
+        await flip(tester);
+        expect(find.text('PARIS'), findsOneWidget);
+        expect(find.byType(SelfReportWidget), findsNothing);
+      });
+
+      testWidgets('aren\'t offered without a keeper', (WidgetTester tester) async {
+        await pumpApp(tester);
+        await flip(tester);
+        expect(find.text('RESPONSE 1'), findsOneWidget);
+        expect(find.byType(SelfReportWidget), findsNothing);
+      });
+
+      testWidgets('fit on a small screen', (WidgetTester tester) async {
+        tester.view.physicalSize = const Size(320, 480);
+        tester.view.devicePixelRatio = 1.0;
+        addTearDown(tester.view.reset);
+        await pumpScored(tester);
+        await flip(tester);
+        await tester.tap(missedIt());
+        await tester.pump();
+        expect(tester.takeException(), isNull);
+      });
+    });
+
     testWidgets('without a keeper there is no score', (WidgetTester tester) async {
       await pumpApp(tester);
       await tester.tap(choice('Paris'));

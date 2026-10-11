@@ -240,8 +240,11 @@ rounds and choices, which covers every case in §2.
    the smallest change that turns trivia into a game, and it can be tried
    against OpenTDB on its own.~~ (done. Until commit 3, an open question
    can't be scored, so moving on from one is a skip.)
-3. **Got it / Missed it** for open questions, with the reserved slot and
-   keys 1 and 2, plus widget tests.
+3. ~~**Got it / Missed it** for open questions, with the reserved slot and
+   keys 1 and 2, plus widget tests.~~ (done. The choice buttons' look moved
+   into `BoardButton`, which both use. Got it / Missed it stay in view when
+   the card is flipped back once answered, and are ignored while the next
+   question loads, since by then moving on has already been counted.)
 4. **README**, and a manual check in a browser (Playwright, as for the web UI
    and filters; remember `locale: 'en-US'`). Play a few clues and trivia
    questions, reload, see the game kept, then press New game. Also check the

@@ -101,6 +101,9 @@ class _QuizPageState extends State<QuizPage> {
   /// Whether the response was shown before a choice was picked, so the pick
   /// doesn't count.
   bool _peeked = false;
+  /// Whether you got an open question: Got it is true, Missed it false, and
+  /// null before either.
+  bool? _gotIt;
   bool _questionHidden = false;
   bool _showOverlay = false;
   /// Whether the error is a missing or rejected token the user can enter.
@@ -153,6 +156,7 @@ class _QuizPageState extends State<QuizPage> {
         _showAnswer = false;
         _picked = null;
         _peeked = false;
+        _gotIt = null;
         _questionHidden = false;
         _showOverlay = false;
         _needsToken = false;
@@ -270,6 +274,29 @@ class _QuizPageState extends State<QuizPage> {
     return choices != null && index < choices.length && _picked == null && !_loading;
   }
 
+  /// Whether the question showing is scored with Got it and Missed it.
+  bool get _selfReported {
+    final current = _current;
+    return widget.scoreKeeper != null && current != null && current.choices == null;
+  }
+
+  /// Whether Got it and Missed it are showing: once the response has been,
+  /// so a result stays in view when the card is flipped back.
+  bool get _showsSelfReport => _selfReported && (_showAnswer || _gotIt != null);
+
+  /// Got it is 1 and Missed it 2, among the number keys.
+  bool _canReport(int index) => _showsSelfReport && index < 2 && !_loading;
+
+  /// Counts the open question showing as got or missed. Choosing the other
+  /// button replaces the result.
+  void _report(bool gotIt) {
+    final keeper = widget.scoreKeeper;
+    // Once loading, the next question may already have been asked for.
+    if (keeper == null || _loading || _gotIt == gotIt) return;
+    setState(() => _gotIt = gotIt);
+    keeper.record(right: gotIt);
+  }
+
   // The keyboard shortcuts only work while a question (or, for F, the
   // no-match message) is showing, so keys typed into the access token field
   // (shown instead of a question) reach it.
@@ -281,7 +308,14 @@ class _QuizPageState extends State<QuizPage> {
         () => _current != null && !_questionHidden && !_loading, _hideQuestion),
     _FilterIntent: _ShortcutAction<_FilterIntent>(
         () => _canFilter && (_current != null || _noMatch) && !_loading, _openFilters),
-    _PickIntent: _PickAction(_canPick, (index) => _pick(_current!.choices![index])),
+    _PickIntent: _PickAction((index) => _canPick(index) || _canReport(index), (index) {
+      final choices = _current?.choices;
+      if (choices != null) {
+        _pick(choices[index]);
+      } else {
+        _report(index == 0);
+      }
+    }),
   };
 
   bool get _canFilter => widget.repository.supportedFilters.isNotEmpty;
@@ -553,7 +587,7 @@ class _QuizPageState extends State<QuizPage> {
                       detail: _detailFor(current), comment: current.categoryComment)),
             ),
             Flexible(
-                flex: choices == null ? 4 : 3,
+                flex: choices == null && !_selfReported ? 4 : 3,
                 child: _buildQuestionAnswerWidget(),
             ),
             if (current != null && choices != null)
@@ -564,6 +598,19 @@ class _QuizPageState extends State<QuizPage> {
                   child: ChoiceListWidget(choices: choices, answer: current.answer,
                       picked: _picked, onPick: _pick,
                       numbered: _hasKeyboard && choices.length <= _pickKeys),
+                ),
+              ),
+            // Kept while the question shows, so the card doesn't change size
+            // when the response is revealed.
+            if (_selfReported)
+              Expanded(
+                flex: 1,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                  child: _showsSelfReport
+                      ? SelfReportWidget(gotIt: _gotIt, onReport: _report,
+                          numbered: _hasKeyboard)
+                      : null,
                 ),
               ),
             Flexible(
@@ -633,7 +680,8 @@ class _QuizPageState extends State<QuizPage> {
         tooltip: _hasKeyboard
             ? 'Load Random Question (N). Space shows the response; H hides the question'
                 '${_canFilter ? '; F filters $_filtered' : ''}'
-                '${_current?.choices != null ? '; 1–4 pick a choice' : ''}.'
+                '${_current?.choices != null ? '; 1–4 pick a choice' : ''}'
+                '${_showsSelfReport ? '; 1 or 2 says whether you got it' : ''}.'
             : 'Load Random Question',
         child: const Icon(Icons.refresh),
       ),
