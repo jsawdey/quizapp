@@ -4,10 +4,13 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:quizapp/config/source_choice.dart';
 import 'package:quizapp/controller/question_repository.dart';
+import 'package:quizapp/controller/score_keeper.dart';
 import 'package:quizapp/data/question_source.dart';
 import 'package:quizapp/model/question.dart';
 import 'package:quizapp/ui/filter_sheet.dart';
 import 'package:quizapp/ui/quiz_question/quiz_ui_library.dart';
+import 'package:quizapp/ui/score_dialog.dart';
+import 'package:quizapp/ui/score_line_widget.dart';
 import 'package:quizapp/ui/theme.dart';
 
 enum DialogAnswer {
@@ -72,13 +75,17 @@ class _ShortcutAction<T extends Intent> extends Action<T> {
 }
 
 class QuizPage extends StatefulWidget {
-  const QuizPage({super.key, required this.title, required this.repository, this.sources});
+  const QuizPage({super.key, required this.title, required this.repository, this.sources,
+    this.scoreKeeper});
 
   final String title;
   final QuestionRepository repository;
 
   /// The sources the app can switch between; no switch if null.
   final SourceChooser? sources;
+
+  /// Keeps score; no scoring if null.
+  final ScoreKeeper? scoreKeeper;
 
   @override
   State<QuizPage> createState() => _QuizPageState();
@@ -91,6 +98,9 @@ class _QuizPageState extends State<QuizPage> {
   bool _showAnswer = false;
   /// The choice picked for a multiple-choice question; null until then.
   String? _picked;
+  /// Whether the response was shown before a choice was picked, so the pick
+  /// doesn't count.
+  bool _peeked = false;
   bool _questionHidden = false;
   bool _showOverlay = false;
   /// Whether the error is a missing or rejected token the user can enter.
@@ -137,10 +147,12 @@ class _QuizPageState extends State<QuizPage> {
       // A browser drops focus along with the token field, which would leave
       // the shortcuts dead until the page is clicked.
       if (_needsToken) _pageFocus.requestFocus();
+      widget.scoreKeeper?.show(question);
       setState(() {
         _current = question;
         _showAnswer = false;
         _picked = null;
+        _peeked = false;
         _questionHidden = false;
         _showOverlay = false;
         _needsToken = false;
@@ -229,14 +241,28 @@ class _QuizPageState extends State<QuizPage> {
     await _loadQuestion();
   }
 
+  /// Moves on to another question. If the one showing has no result, that
+  /// is a skip, which ends the streak.
+  Future<void> _nextQuestion() async {
+    if (_loading) return;
+    if (_current != null) widget.scoreKeeper?.skip();
+    await _loadQuestion();
+  }
+
   void _toggleAnswer() {
-    if (_current == null) return;
-    setState(() => _showAnswer = !_showAnswer);
+    final current = _current;
+    if (current == null) return;
+    setState(() {
+      _showAnswer = !_showAnswer;
+      if (current.choices != null && _picked == null) _peeked = true;
+    });
   }
 
   void _pick(String choice) {
-    if (_picked != null) return;
+    final current = _current;
+    if (_picked != null || current == null) return;
     setState(() => _picked = choice);
+    if (!_peeked) widget.scoreKeeper?.record(right: choice == current.answer);
   }
 
   bool _canPick(int index) {
@@ -250,7 +276,7 @@ class _QuizPageState extends State<QuizPage> {
   late final Map<Type, Action<Intent>> _shortcutActions = {
     _FlipIntent: _ShortcutAction<_FlipIntent>(() => _current != null, _toggleAnswer),
     _NextIntent: _ShortcutAction<_NextIntent>(
-        () => _current != null && !_loading, _loadQuestion),
+        () => _current != null && !_loading, _nextQuestion),
     _HideIntent: _ShortcutAction<_HideIntent>(
         () => _current != null && !_questionHidden && !_loading, _hideQuestion),
     _FilterIntent: _ShortcutAction<_FilterIntent>(
@@ -483,6 +509,31 @@ class _QuizPageState extends State<QuizPage> {
         ),
       );
 
+  /// The row under the board: Hide Question, with the score line to its left
+  /// when keeping score.
+  Widget _buildBottomRow(Widget hideButton) {
+    final keeper = widget.scoreKeeper;
+    if (keeper == null) return Center(child: hideButton);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: ListenableBuilder(
+                listenable: keeper,
+                builder: (context, _) => ScoreLineWidget(score: keeper.score,
+                    onPressed: () => showScoreDialog(context, keeper)),
+              ),
+            ),
+          ),
+          hideButton,
+        ],
+      ),
+    );
+  }
+
   Widget _buildQuestionBody() {
     final current = _current;
     final choices = current?.choices;
@@ -517,19 +568,17 @@ class _QuizPageState extends State<QuizPage> {
               ),
             Flexible(
               flex: 1,
-              child: Center(
-                child: TextButton(
-                    style: TextButton.styleFrom(padding: const EdgeInsets.all(4.0)),
-                    onPressed: canHide ? _hideQuestion : null,
-                    child: Text(
-                      'Hide Question',
-                      style: TextStyle(
-                        color: canHide ? Colors.white : Colors.white38,
-                        decoration: TextDecoration.underline,
-                      ),
-                    )
-                ),
-              ),
+              child: _buildBottomRow(TextButton(
+                  style: TextButton.styleFrom(padding: const EdgeInsets.all(4.0)),
+                  onPressed: canHide ? _hideQuestion : null,
+                  child: Text(
+                    'Hide Question',
+                    style: TextStyle(
+                      color: canHide ? Colors.white : Colors.white38,
+                      decoration: TextDecoration.underline,
+                    ),
+                  )
+              )),
             ),
           ],
         ),
@@ -580,7 +629,7 @@ class _QuizPageState extends State<QuizPage> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _loading ? null : _loadQuestion,
+        onPressed: _loading ? null : _nextQuestion,
         tooltip: _hasKeyboard
             ? 'Load Random Question (N). Space shows the response; H hides the question'
                 '${_canFilter ? '; F filters $_filtered' : ''}'

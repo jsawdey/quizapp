@@ -6,15 +6,19 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:quizapp/config/source_choice.dart';
 import 'package:quizapp/controller/question_repository.dart';
+import 'package:quizapp/controller/score_keeper.dart';
 import 'package:quizapp/data/fallback_question_source.dart';
 import 'package:quizapp/data/filter_store.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
+import 'package:quizapp/data/score_store.dart';
 import 'package:quizapp/data/token_store.dart';
 import 'package:quizapp/main.dart';
 import 'package:quizapp/model/question.dart';
+import 'package:quizapp/model/score.dart';
 import 'package:quizapp/ui/quiz_question/quiz_ui_library.dart';
+import 'package:quizapp/ui/score_line_widget.dart';
 
 import 'support/fakes.dart';
 
@@ -913,6 +917,217 @@ void main() {
       await tester.pumpAndSettle();
       expect(store.filter, QuestionFilter.any);
       expect(find.text('CLUE 1'), findsOneWidget);
+    });
+  });
+
+  group('score', () {
+    final capital = fakeQuestion('1', answer: 'Paris',
+        choices: ['Lyon', 'Paris', 'Nice', 'Lille'], value: null);
+    final boils = fakeQuestion('2', answer: 'True', choices: ['True', 'False'], value: null);
+    // Two right in a row, so there's a streak to break.
+    const onARoll = Score(answered: 2, right: 2, streak: 2, best: 2);
+    late InMemoryScoreStore scores;
+    late ScoreKeeper keeper;
+
+    setUp(() {
+      source = FakeQuestionSource([capital, boils, fakeQuestion('3')],
+          supportsRemoteReport: true);
+      scores = InMemoryScoreStore();
+      keeper = ScoreKeeper(store: scores, now: () => DateTime(2026, 10, 11, 20));
+    });
+
+    Future<void> pumpScored(WidgetTester tester,
+        {QuestionRepository? repository, SourceChooser? sources}) async {
+      await tester.pumpWidget(QuizApp(scoreKeeper: keeper, sources: sources,
+          repository: repository ?? QuestionRepository(source: source, hiddenStore: hidden)));
+      await tester.pump();
+    }
+
+    Finder choice(String text) => find.widgetWithText(TextButton, text);
+    Finder scoreLine([String? text]) => text == null
+        ? find.descendant(of: find.byType(ScoreLineWidget), matching: find.byType(Text))
+        : find.descendant(of: find.byType(ScoreLineWidget), matching: find.text(text));
+
+    Future<void> next(WidgetTester tester) async {
+      await tester.tap(find.byIcon(Icons.refresh));
+      await tester.pump();
+    }
+
+    testWidgets('a pick counts, and the score line opens the score', (WidgetTester tester) async {
+      await pumpScored(tester);
+      // Nothing to show before the first result.
+      expect(scoreLine(), findsNothing);
+
+      await tester.tap(choice('Paris'));
+      await tester.pump();
+      expect(scoreLine('1/1 right · streak 1'), findsOneWidget);
+      expect(scores.score.right, 1);
+
+      await next(tester);
+      await tester.tap(choice('False'));
+      await tester.pump();
+      expect(scoreLine('1/2 right · streak 0'), findsOneWidget);
+
+      await tester.tap(scoreLine());
+      await tester.pumpAndSettle();
+      expect(find.text('Score'), findsOneWidget);
+      expect(find.text('1 right out of 2 (50%)'), findsOneWidget);
+      expect(find.text('Streak 0, best 1'), findsOneWidget);
+      expect(find.text('Started Oct 11, 2026'), findsOneWidget);
+      // No clue with a value has been scored.
+      expect(find.textContaining('\$'), findsNothing);
+
+      await tester.tap(find.text('Close'));
+      await tester.pumpAndSettle();
+      expect(find.text('Score'), findsNothing);
+      expect(scoreLine('1/2 right · streak 0'), findsOneWidget);
+    });
+
+    testWidgets('a pick after peeking doesn\'t count, and moving on is a skip',
+        (WidgetTester tester) async {
+      keeper = ScoreKeeper(store: scores, initial: onARoll);
+      await pumpScored(tester);
+      await tester.tap(find.byType(QuestionAnswerWidget));
+      await tester.pump();
+      // Flipping back doesn't undo the peek.
+      await tester.tap(find.byType(QuestionAnswerWidget));
+      await tester.pump();
+      await tester.tap(choice('Paris'));
+      await tester.pump();
+      expect(find.byIcon(Icons.check), findsOneWidget);
+      expect(keeper.score, onARoll);
+
+      await next(tester);
+      expect(scoreLine('2/2 right · streak 0'), findsOneWidget);
+      expect(scores.score.best, 2);
+    });
+
+    testWidgets('peeking after a pick still counts the pick', (WidgetTester tester) async {
+      await pumpScored(tester);
+      await tester.tap(choice('Paris'));
+      await tester.pump();
+      await tester.tap(find.byType(QuestionAnswerWidget));
+      await tester.pump();
+      expect(keeper.score.right, 1);
+    });
+
+    testWidgets('next without a result ends the streak, by button or key',
+        (WidgetTester tester) async {
+      keeper = ScoreKeeper(store: scores, initial: onARoll);
+      await pumpScored(tester);
+      await tester.tap(choice('Paris'));
+      await tester.pump();
+      // Answered, so moving on keeps the streak.
+      await next(tester);
+      expect(keeper.score.streak, 3);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+      await tester.pump();
+      expect(keeper.score.streak, 0);
+      expect(keeper.score.answered, 3);
+    });
+
+    testWidgets('hiding a question doesn\'t end the streak', (WidgetTester tester) async {
+      keeper = ScoreKeeper(store: scores, initial: onARoll);
+      await pumpScored(tester);
+      await tester.tap(hideButton());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Hide'));
+      await tester.pumpAndSettle();
+      expect(find.text('CLUE 2'), findsOneWidget);
+      expect(keeper.score, onARoll);
+    });
+
+    testWidgets('changing the filter doesn\'t end the streak', (WidgetTester tester) async {
+      keeper = ScoreKeeper(store: scores, initial: onARoll);
+      source.supportedFilters = {FilterKind.round};
+      await pumpScored(tester, repository: QuestionRepository(source: source,
+          hiddenStore: hidden, filterStore: InMemoryFilterStore()));
+      await tester.tap(find.byIcon(Icons.filter_alt_outlined));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Final Jeopardy!'));
+      await tester.pump();
+      await tester.tap(find.text('Apply'));
+      await tester.pumpAndSettle();
+      expect(find.text('CLUE 2'), findsOneWidget);
+      expect(keeper.score, onARoll);
+    });
+
+    testWidgets('switching source keeps the game and the streak', (WidgetTester tester) async {
+      keeper = ScoreKeeper(store: scores, initial: onARoll);
+      final sources = SourceChooser([
+        SourceOption(id: 'local:clues', label: 'Jeopardy! clues', detail: 'On this device',
+            create: () => FakeQuestionSource([fakeQuestion('c')])),
+        SourceOption(id: 'opentdb', label: 'Open Trivia Database', detail: 'Online trivia',
+            create: () => FakeQuestionSource([boils])),
+      ], store: InMemorySourceChoiceStore());
+      await pumpScored(tester, sources: sources,
+          repository: QuestionRepository(source: sources.current.create(), hiddenStore: hidden));
+      await tester.tap(find.byIcon(Icons.swap_horiz));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Open Trivia Database'));
+      await tester.pumpAndSettle();
+      expect(find.text('CLUE 2'), findsOneWidget);
+      expect(keeper.score, onARoll);
+
+      await tester.tap(choice('True'));
+      await tester.pump();
+      expect(scoreLine('3/3 right · streak 3'), findsOneWidget);
+    });
+
+    testWidgets('dollars show once a clue with a value is scored, with a minus sign when behind',
+        (WidgetTester tester) async {
+      source = FakeQuestionSource([fakeQuestion('1', round: 1, value: 400, answer: 'A',
+          choices: ['A', 'B'])]);
+      await pumpScored(tester);
+      await tester.tap(choice('B'));
+      await tester.pump();
+      expect(scoreLine('0/1 right · streak 0 · −\$400'), findsOneWidget);
+      expect(find.bySemanticsLabel('Score: 0 right out of 1, streak 0, minus 400 dollars'),
+          findsOneWidget);
+
+      await tester.tap(scoreLine());
+      await tester.pumpAndSettle();
+      expect(find.text('−\$400 from 1 clue'), findsOneWidget);
+    });
+
+    testWidgets('New game clears the score', (WidgetTester tester) async {
+      await pumpScored(tester);
+      await tester.tap(choice('Paris'));
+      await tester.pump();
+      await tester.tap(scoreLine());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('New game'));
+      await tester.pumpAndSettle();
+      expect(find.text('Score'), findsNothing);
+      expect(scoreLine(), findsNothing);
+      expect(scores.score, Score.empty);
+    });
+
+    testWidgets('a saved game shows from the start', (WidgetTester tester) async {
+      keeper = await ScoreKeeper.load(InMemoryScoreStore(
+          const Score(answered: 10, right: 7, streak: 3, best: 5, dollars: 4200, valued: 8)));
+      await pumpScored(tester);
+      expect(scoreLine('7/10 right · streak 3 · \$4,200'), findsOneWidget);
+    });
+
+    testWidgets('a long score fits on a small screen', (WidgetTester tester) async {
+      tester.view.physicalSize = const Size(320, 480);
+      tester.view.devicePixelRatio = 1.0;
+      addTearDown(tester.view.reset);
+      keeper = ScoreKeeper(store: scores, initial: const Score(answered: 12345,
+          right: 1234, streak: 123, best: 123, dollars: -123400, valued: 9999));
+      await pumpScored(tester);
+      expect(scoreLine(), findsOneWidget);
+      expect(hideButton(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('without a keeper there is no score', (WidgetTester tester) async {
+      await pumpApp(tester);
+      await tester.tap(choice('Paris'));
+      await tester.pump();
+      expect(find.byType(ScoreLineWidget), findsNothing);
     });
   });
 }

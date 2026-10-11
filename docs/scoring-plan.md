@@ -212,8 +212,9 @@ label reads out in full ("Score: 7 right out of 10, streak 3, 4,200
 dollars"). Negative dollars show as `−$400`, using the same `NumberFormat`
 as clue values.
 
-**Score dialog:** an `AlertDialog` titled "Score", with one line per figure
-from §0, "Started Oct 11" from `started`, and the actions **New game** and
+**Score dialog** (`lib/ui/score_dialog.dart`): an `AlertDialog` titled
+"Score", with one line per figure from §0, "Started Oct 11, 2026" from
+`started`, and the actions **New game** and
 **Close**. New game asks nothing further: opening the dialog and pressing
 the button is already two deliberate steps, and the button only clears the
 score, never hidden questions or the filter.
@@ -234,10 +235,11 @@ rounds and choices, which covers every case in §2.
 
 1. ~~**`Score`, `ScoreStore` and `ScoreKeeper`**, plus their tests. No UI;
    nothing calls them yet.~~ (done)
-2. **Multiple-choice scoring**: the score line, the dialog with New game,
+2. ~~**Multiple-choice scoring**: the score line, the dialog with New game,
    peeking, and `main.dart` creating the keeper, plus widget tests. This is
    the smallest change that turns trivia into a game, and it can be tried
-   against OpenTDB on its own.
+   against OpenTDB on its own.~~ (done. Until commit 3, an open question
+   can't be scored, so moving on from one is a skip.)
 3. **Got it / Missed it** for open questions, with the reserved slot and
    keys 1 and 2, plus widget tests.
 4. **README**, and a manual check in a browser (Playwright, as for the web UI
