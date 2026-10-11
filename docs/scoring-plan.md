@@ -15,9 +15,11 @@ once for phones, desktop and the browser.
   two buttons appear under the card: **Got it** and **Missed it**. Tapping
   one counts the question. You can change your mind until the next question
   loads, since a mis-tap on a phone is easy.
-- **Skipping is free.** Loading the next question without answering doesn't
-  count either way, so the app still works as a flash card for anyone who
-  doesn't want a score.
+- **Skipping breaks the streak.** Moving on to the next question without
+  scoring this one doesn't count as right or wrong, but it sets the streak
+  back to 0, so a streak means questions answered in a row. The app still
+  works as a flash card for anyone who doesn't want a score: the score line
+  just stays empty.
 - **A score line** sits at the bottom of the board, next to Hide Question:
   `7/10 right · streak 3`, plus `$4,200` once the game has had a Jeopardy
   clue with a value. Tapping it opens the score dialog.
@@ -51,8 +53,17 @@ its own controller (§3), so the repository and its tests stay as they are.
 **Right and answered.** Each scored question adds 1 to `answered`, and 1 to
 `right` if it was got right. The percentage is `right / answered`.
 
-**Streak.** Right answers in a row. A miss sets it to 0; `best` keeps the
-highest it has reached. Skipped questions don't touch it (see §9).
+**Streak.** Right answers in a row. A miss or a skip sets it to 0; `best`
+keeps the highest it has reached.
+
+**Skips.** A skip is moving on to the next question (the refresh button, N
+or →) without having scored the one showing. That includes a
+multiple-choice question you peeked at and then picked, since that pick
+doesn't count (below). A skip changes only the streak: it isn't added to
+`answered`, so the percentage is about questions you answered. Hiding a
+question isn't a skip (you're removing a bad question, not avoiding a
+hard one), and neither is a source switch or a filter change, which replace
+the question rather than move past it.
 
 **Dollars: the Coryat score.** For Jeopardy clues, the dollar line is the
 Coryat score (described in J! Archive's help), the usual way fans score
@@ -80,7 +91,8 @@ after about 5,300 questions; The Trivia API has no session at all), it can
 be scored again. That's the same question asked twice, so it's fair.
 
 **Hiding.** Hiding a question you've already scored keeps the result: you
-answered it. Hiding one you haven't scored counts nothing, as with a skip.
+answered it. Hiding one you haven't scored counts nothing and keeps the
+streak.
 
 **Switching source or filter** keeps the game. Its counts mean the same
 thing whatever the questions are; dollars only ever come from Jeopardy
@@ -97,13 +109,14 @@ class Score {
   final int valued;    // how many scored questions had a dollar value
   final DateTime? started;  // when the first question of this game was scored
 
-  static const empty = Score(...);
-  Score record(Question question, {required bool right, DateTime? now});
+  static const empty = Score();
+  Score record(Question question, {required bool right, required DateTime now});
+  Score skipped();
 }
 ```
 
-`record` returns the new score, with the rules from §2 in one place. It is
-plain Dart, so the arithmetic is unit tested without widgets.
+`record` and `skipped` return the new score, with the rules from §2 in one
+place. It is plain Dart, so the arithmetic is unit tested without widgets.
 
 **`lib/data/score_store.dart`**: `ScoreStore` with `read()` and
 `write(Score)`, plus `InMemoryScoreStore` and `SharedPrefsScoreStore`.
@@ -114,37 +127,45 @@ These mirror `FilterStore`. The saved form is one JSON value under the key
 {"answered":10,"right":7,"streak":3,"best":5,"dollars":4200,"valued":8,"started":"2026-10-11"}
 ```
 
-A missing or unreadable value, or one with a negative count, is read as
-`Score.empty`. Writing `Score.empty` removes the key.
+A missing or unreadable value, or one whose counts can't go together (a
+negative count, more right than answered, a streak above the best), is
+read as `Score.empty`. Writing `Score.empty` removes the key.
 
 **`lib/controller/score_keeper.dart`**: a `ChangeNotifier` that the page
 listens to.
 
 ```dart
 class ScoreKeeper extends ChangeNotifier {
-  ScoreKeeper({required ScoreStore store});
+  ScoreKeeper({required ScoreStore store, Score initial = Score.empty});
+  static Future<ScoreKeeper> load(ScoreStore store);  // reads the saved game
   Score get score;
-  Future<void> open();            // reads the saved game; safe to call twice
-  void record(Question question, {required bool right});
-  void newGame();
+  void show(Question question);             // a new question is showing
+  Future<void> record({required bool right});  // the result for it
+  Future<void> skip();                      // moving on without a result
+  Future<void> newGame();
 }
 ```
 
+- **The question showing.** The page calls `show` whenever it puts a new
+  question up, however it got there (next, hide, source switch, filter).
+  `record` and `skip` apply to that question. `skip` breaks the streak only
+  if the question has no result; the page calls it on next, not on the
+  other ways a question is replaced (§2).
 - **Changing your mind** about Got it or Missed it works by keeping the
-  score from before the first result for the current question. A second
-  `record` for the *same* question (`identical`, not just the same key)
-  recomputes from that snapshot instead of adding again. Streak and best
-  can't be undone by subtracting, so recomputing is the only correct way.
-  The snapshot is dropped when a different question is recorded, and is
-  never saved: after a relaunch the old question is gone anyway.
-- **Saving** happens after every change, without waiting for it. A failed
-  save is only logged (as with the filter): the score still counts until
-  the app closes.
-- **Opening:** `main.dart` creates the keeper and calls `open()` alongside
-  the repository. If a result is recorded before the saved game has been
-  read, the saved game wins and the new result is applied on top of it, the
-  same rule as "a filter chosen while opening wins over the saved one",
-  turned around because results add up instead of replacing.
+  score from before the first result for the question showing. A second
+  `record` recomputes from that snapshot instead of adding again. Streak
+  and best can't be undone by subtracting, so recomputing is the only
+  correct way. `show` and `newGame` drop the snapshot, and it is never
+  saved: after a relaunch the old question is gone anyway.
+- **Saving** happens after every change. The score changes and listeners
+  hear about it at once; the returned future completes when the save is
+  done, so tests can wait for it and the page needn't. A failed save is
+  only logged (as with the filter): the score still counts until the app
+  closes.
+- **Loading:** `main.dart` awaits `ScoreKeeper.load` before `runApp`, as it
+  awaits `SourceChooser.load`, so the saved game is there before the first
+  result can be recorded. A game that can't be read is logged and starts
+  empty.
 
 ## 4. UI (`lib/quiz_page.dart`, `lib/ui/`)
 
@@ -155,13 +176,18 @@ as they are, and `main.dart` always passes one.
 
 **Page state.** `_QuizPageState` gains `bool? _gotIt` (the self-report for
 the current open question) and `bool _peeked` (the response was shown before
-a choice was picked). Both reset in `_loadQuestion`, next to `_picked`.
+a choice was picked). Both reset in `_loadQuestion`, next to `_picked`,
+which also calls `scoreKeeper.show` with the new question.
 
 - `_toggleAnswer` sets `_peeked` if there are choices and `_picked` is null.
-- `_pick` calls `scoreKeeper.record(current, right: choice == current.answer)`
+- `_pick` calls `scoreKeeper.record(right: choice == current.answer)`
   unless `_peeked`.
 - `_report(bool gotIt)` sets `_gotIt` and calls `record`. Calling it again
   with the other value is the change of mind from §3.
+- The refresh button and the N / → shortcut call a new `_nextQuestion`,
+  which calls `scoreKeeper.skip()` and then `_loadQuestion`. Hiding,
+  switching source and applying a filter keep calling `_loadQuestion`
+  directly, so they don't break the streak.
 
 **Got it / Missed it** (`lib/ui/quiz_question/self_report_widget.dart`): two
 buttons in one row, styled like `ChoiceListWidget`'s and numbered 1 and 2 on
@@ -196,18 +222,18 @@ score, never hidden questions or the filter.
 
 | File | Checks |
 |---|---|
-| `test/score_test.dart` | Right and wrong; streak and best; Coryat adds and subtracts the value; Final Jeopardy and trivia questions count without dollars; a Daily Double adds its board value when right and subtracts nothing when wrong; `started` set by the first result only |
-| `test/score_store_test.dart` | JSON round trip; missing, malformed and negative values read as `Score.empty`; writing empty removes the key |
-| `test/score_keeper_test.dart` | Records and saves; changing your mind from right to wrong and back gives the same score as recording once, streak and best included; a different question drops the snapshot; `newGame`; a save that fails still counts; a result recorded while opening lands on top of the saved game |
-| `test/widget_test.dart` | A pick updates the score line; peeking then picking leaves it unchanged; Got it / Missed it only after the response shows, and switching between them; keys 1 and 2; no score UI without a keeper; dialog figures and New game; the score line survives a source switch, a filter change and a hide; a game saved by one keeper is shown by a new one with the same store |
+| `test/score_test.dart` | Right and wrong; streak and best; a skip resets the streak only; Coryat adds and subtracts the value; Final Jeopardy and trivia questions count without dollars; a Daily Double adds its board value when right and subtracts nothing when wrong; `started` set by the first result only |
+| `test/score_store_test.dart` | JSON round trip; missing, malformed and inconsistent values read as `Score.empty`; writing empty removes the key |
+| `test/score_keeper_test.dart` | `load` reads the saved game, or starts empty when it can't; records and saves; changing your mind from right to wrong and back gives the same score as recording once, streak and best included; `show` drops the snapshot; `skip` breaks the streak only without a result; `newGame`; a save that fails still counts; listeners hear every change |
+| `test/widget_test.dart` | A pick updates the score line; peeking then picking leaves it unchanged; Got it / Missed it only after the response shows, and switching between them; keys 1 and 2; no score UI without a keeper; dialog figures and New game; next without a result breaks the streak, but hide, a source switch and a filter change don't; a game saved by one keeper is shown by a new one with the same store |
 
 `test/support/fakes.dart` already makes questions with and without values,
 rounds and choices, which covers every case in §2.
 
 ## 6. Suggested commit order
 
-1. **`Score`, `ScoreStore` and `ScoreKeeper`**, plus their tests. No UI;
-   nothing calls them yet.
+1. ~~**`Score`, `ScoreStore` and `ScoreKeeper`**, plus their tests. No UI;
+   nothing calls them yet.~~ (done)
 2. **Multiple-choice scoring**: the score line, the dialog with New game,
    peeking, and `main.dart` creating the keeper, plus widget tests. This is
    the smallest change that turns trivia into a game, and it can be tried
@@ -252,20 +278,16 @@ Commits 1–3 are the feature. Commit 2 is useful even if 3 waits.
 
 ## 9. Risks and open questions
 
-- **It's an honour system.** Self-report can't be checked, and skipping
-  hard questions protects a streak. That's fine for a personal app; the
-  percentage and the dollar score are only as honest as the player.
-- **Open: should skipping break the streak?** This plan says no, so the app
-  stays a flash card for anyone who ignores the score. The other choice is
-  that a question you *revealed* but didn't score breaks it. It's a
-  one-line change in `ScoreKeeper` if you prefer that.
-- **Open: should peeking count as a miss?** This plan says no (§2). If it
-  ever should, it's the same one place.
-- **Open: is a percentage enough for trivia?** Difficulty could weight
-  trivia questions (1, 2 or 3 points for easy, medium and hard), much as
-  clue values weight Jeopardy clues. Left out for now: a plain count is
-  easier to read, and weighting can be added later without changing what's
-  saved.
+- **It's an honour system.** Self-report can't be checked. That's fine for
+  a personal app; the score is only as honest as the player.
+- **Decided:** a skip breaks the streak (§2), so skipping hard questions
+  can't protect it. It still doesn't count as a miss.
+- **Decided:** peeking at a multiple-choice question isn't a miss (§2);
+  moving on from it is a skip.
+- **Decided:** trivia questions all count the same. Difficulty could weight
+  them (1, 2 or 3 points for easy, medium and hard), much as clue values
+  weight Jeopardy clues, but a plain count is easier to read, and weighting
+  can be added later without changing what's saved.
 - **The bottom row could get crowded** on small phones (§8).
 - **The saved form will grow** if history comes later (§7). The JSON has
   no version field; a history would live in its own store, so this one never
