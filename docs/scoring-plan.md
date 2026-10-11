@@ -66,7 +66,7 @@ hard one), and neither is a source switch or a filter change, which replace
 the question rather than move past it.
 
 **Dollars: the Coryat score.** For Jeopardy clues, the dollar line is the
-Coryat score (described in J! Archive's help), the usual way fans score
+Coryat score (see Karl Coryat on Wikipedia), the usual way fans score
 themselves at home, with no wagering: a right response adds the clue's
 value and a wrong one subtracts it. Daily Doubles count at their board value
 (which is what the app already shows), and a wrong one subtracts nothing,
@@ -245,11 +245,20 @@ rounds and choices, which covers every case in §2.
    into `BoardButton`, which both use. Got it / Missed it stay in view when
    the card is flipped back once answered, and are ignored while the next
    question loads, since by then moving on has already been counted.)
-4. **README**, and a manual check in a browser (Playwright, as for the web UI
+4. ~~**README**, and a manual check in a browser (Playwright, as for the web UI
    and filters; remember `locale: 'en-US'`). Play a few clues and trivia
    questions, reload, see the game kept, then press New game. Also check the
    score line on a phone-sized window (360 px wide) with a four-figure
-   negative score.
+   negative score.~~ (done, against the real clue database and live OpenTDB,
+   at 360 × 740 and 1280 × 800. It found two layout bugs, both fixed with a
+   test: on a phone the floating refresh button covered Hide Question,
+   which had moved to the right of the bottom row (§8); and "Missed it"
+   wrapped onto two lines once its cross showed, so Got it / Missed it now
+   shrink on one line instead. Counts also gained thousands separators.
+   To reach OpenTDB through this environment's proxy while serving the app
+   on 127.0.0.1, pass Chromium `--proxy-server` and `--proxy-bypass-list`
+   directly: Playwright's own `proxy` option sends loopback through the
+   proxy too.)
 
 Commits 1–3 are the feature. Commit 2 is useful even if 3 waits.
 
@@ -277,9 +286,13 @@ Commits 1–3 are the feature. Commit 2 is useful even if 3 waits.
   tick and cross on choices.
 - The colours are the existing right and wrong colours, and the tick and
   cross carry the meaning for anyone who can't tell green from red.
-- At 360 px the bottom row has to fit the score line and Hide Question. If
-  it can't at a readable size, Hide Question moves to the score dialog's
-  actions on narrow screens. Check this in commit 4 before deciding.
+- At 360 px the bottom row has to fit the score line and Hide Question, and
+  the floating refresh button sits over its right end. *Decided after the
+  browser check:* the row keeps clear of the button wherever the button
+  overlaps the board, and Hide Question stays in the row. A typical score
+  (`12/20 right · streak 3 · $12,400`) fits at full size; an extreme one
+  (`987/1,234 right · streak 45 · −$123,400`) shrinks to about 9 px, small
+  but legible, so Hide Question didn't need to move.
 
 ## 9. Risks and open questions
 
@@ -293,7 +306,6 @@ Commits 1–3 are the feature. Commit 2 is useful even if 3 waits.
   them (1, 2 or 3 points for easy, medium and hard), much as clue values
   weight Jeopardy clues, but a plain count is easier to read, and weighting
   can be added later without changing what's saved.
-- **The bottom row could get crowded** on small phones (§8).
 - **The saved form will grow** if history comes later (§7). The JSON has
   no version field; a history would live in its own store, so this one never
   needs migrating.

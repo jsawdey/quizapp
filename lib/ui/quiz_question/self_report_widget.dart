@@ -40,6 +40,7 @@ class SelfReportWidget extends StatelessWidget {
       icon: !chosen ? null : got ? Icons.check : Icons.close,
       iconLabel: chosen ? 'Chosen' : null,
       onPressed: () => onReport(got),
+      wrap: false,
     );
   }
 }

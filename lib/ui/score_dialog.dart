@@ -16,11 +16,12 @@ Future<void> showScoreDialog(BuildContext context, ScoreKeeper keeper) {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text('${score.right} right out of ${score.answered} ($percent%)'),
+          Text('${formatCount(score.right)} right out of ${formatCount(score.answered)} '
+              '($percent%)'),
           if (score.valued > 0)
-            Text('${formatDollars(score.dollars)} from ${score.valued} '
+            Text('${formatDollars(score.dollars)} from ${formatCount(score.valued)} '
                 '${score.valued == 1 ? 'clue' : 'clues'}'),
-          Text('Streak ${score.streak}, best ${score.best}'),
+          Text('Streak ${formatCount(score.streak)}, best ${formatCount(score.best)}'),
           if (started != null)
             Text('Started ${DateFormat.yMMMd('en_US').format(started)}'),
         ],

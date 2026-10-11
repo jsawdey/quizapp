@@ -5,6 +5,9 @@ import 'package:quizapp/model/score.dart';
 final _dollarFormat = NumberFormat.simpleCurrency(locale: 'en_US', decimalDigits: 0);
 final _numberFormat = NumberFormat.decimalPattern('en_US');
 
+/// "1,234".
+String formatCount(int count) => _numberFormat.format(count);
+
 /// "$4,200", or "−$400" with a minus sign rather than a hyphen.
 String formatDollars(int dollars) =>
     dollars < 0 ? '−${_dollarFormat.format(-dollars)}' : _dollarFormat.format(dollars);
@@ -12,8 +15,8 @@ String formatDollars(int dollars) =>
 /// The score line's text, such as "7/10 right · streak 3 · $4,200". Dollars
 /// only appear once a clue with a value has been scored.
 String describeScore(Score score) => [
-      '${score.right}/${score.answered} right',
-      'streak ${score.streak}',
+      '${formatCount(score.right)}/${formatCount(score.answered)} right',
+      'streak ${formatCount(score.streak)}',
       if (score.valued > 0) formatDollars(score.dollars),
     ].join(' · ');
 
@@ -22,8 +25,8 @@ String describeScore(Score score) => [
 String describeScoreAloud(Score score) {
   final dollars = score.dollars;
   return [
-    'Score: ${score.right} right out of ${score.answered}',
-    'streak ${score.streak}',
+    'Score: ${formatCount(score.right)} right out of ${formatCount(score.answered)}',
+    'streak ${formatCount(score.streak)}',
     if (score.valued > 0)
       '${dollars < 0 ? 'minus ' : ''}${_numberFormat.format(dollars.abs())} dollars',
   ].join(', ');

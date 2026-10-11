@@ -164,6 +164,31 @@ credit shows it in the raw data overlay and under the copyright button in the
 app bar. The design is in
 [docs/general-trivia-plan.md](docs/general-trivia-plan.md).
 
+## Keeping score
+
+The app keeps score as you play. A multiple-choice or true or false
+question counts when you pick a choice, unless you tapped the card to see
+the answer first. For a Jeopardy! clue, show the response, then say whether
+you knew it with **Got it** or **Missed it** (keys 1 and 2 on a keyboard);
+tap the other one if you tapped the wrong one.
+
+The score sits at the bottom of the board, such as `7/10 right · streak 3 ·
+$4,200`:
+
+- **Right** out of the questions you answered.
+- **Streak**: right answers in a row. A miss ends it, and so does moving on
+  to the next question without answering. Hiding a question, switching the
+  source or changing the filter doesn't.
+- **Dollars**, once you've answered a clue with a value: the
+  [Coryat score](https://en.wikipedia.org/wiki/Karl_Coryat), the usual way to score
+  yourself at home. A right response adds the clue's value and a wrong one
+  takes it away; a wrong Daily Double costs nothing, and Final Jeopardy!
+  counts as right or wrong but not in dollars. General trivia has no dollars.
+
+Tap the score for the details, and **New game** to start again. The game is
+kept between launches (in the browser's storage, for the web UI). The
+design is in [docs/scoring-plan.md](docs/scoring-plan.md).
+
 ## Filtering clues
 
 The filter button in the app bar (or F on a keyboard) picks which rounds to
@@ -272,7 +297,8 @@ Then open `http://<this computer>:8080/`.
   it, so the build refuses it. The app's files themselves don't need the
   token; they contain no clues.
 - **Keyboard:** Space or Enter flips the card, N or → loads the next clue, H
-  hides the clue, F opens the filters, and 1–4 pick a choice.
+  hides the clue, F opens the filters, 1–4 pick a choice, and once the
+  response shows, 1 and 2 are Got it and Missed it.
 - Hidden clues are kept in the browser's storage, and reported to the server
   so every device stops seeing them.
 - **Personal use only**, as above: keep the server on your own network. Don't

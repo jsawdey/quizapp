@@ -20,14 +20,20 @@ class BoardButton extends StatelessWidget {
   /// Goes on the [TextButton] itself.
   final Key? buttonKey;
 
+  /// Whether [label] wraps before it's scaled down. Short labels look better
+  /// kept on one line.
+  final bool wrap;
+
   const BoardButton({super.key, required this.label, required this.onPressed,
     this.background = CustomAppTheme.boardBlue, this.foreground = Colors.white,
-    this.number, this.icon, this.iconLabel, this.buttonKey});
+    this.number, this.icon, this.iconLabel, this.buttonKey, this.wrap = true});
 
   @override
   Widget build(BuildContext context) {
     final number = this.number;
     final icon = this.icon;
+    final text = Text(label, textAlign: TextAlign.center,
+        style: CustomAppTheme.choiceTextTheme().copyWith(color: foreground));
     return Padding(
       padding: const EdgeInsets.all(4.0),
       child: TextButton(
@@ -51,16 +57,14 @@ class BoardButton extends StatelessWidget {
                 child: Text('$number', style: CustomAppTheme.choiceNumberTextTheme()),
               ),
             Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) => FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: SizedBox(
-                    width: constraints.maxWidth,
-                    child: Text(label, textAlign: TextAlign.center,
-                        style: CustomAppTheme.choiceTextTheme().copyWith(color: foreground)),
-                  ),
-                ),
-              ),
+              child: wrap
+                  ? LayoutBuilder(
+                      builder: (context, constraints) => FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: SizedBox(width: constraints.maxWidth, child: text),
+                      ),
+                    )
+                  : FittedBox(fit: BoxFit.scaleDown, child: text),
             ),
             if (icon != null)
               Padding(

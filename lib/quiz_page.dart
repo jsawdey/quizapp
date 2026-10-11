@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -119,6 +121,9 @@ class _QuizPageState extends State<QuizPage> {
 
   /// The board's widest size, so it keeps its shape in a wide browser window.
   static const maxBoardWidth = 900.0;
+
+  /// How far the floating button reaches in from the right of the screen.
+  static const _floatingButtonReach = kFloatingActionButtonMargin + 56.0;
 
   /// Whether to mention keyboard shortcuts: in a browser or on a desktop.
   static bool get _hasKeyboard => kIsWeb || const {TargetPlatform.linux,
@@ -548,8 +553,13 @@ class _QuizPageState extends State<QuizPage> {
   Widget _buildBottomRow(Widget hideButton) {
     final keeper = widget.scoreKeeper;
     if (keeper == null) return Center(child: hideButton);
+    // On a narrow screen the floating button sits over the board's bottom
+    // right corner, so Hide Question keeps out from under it.
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final besideBoard = (screenWidth - min(screenWidth, maxBoardWidth)) / 2;
+    final underButton = max(0.0, _floatingButtonReach - besideBoard);
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8.0),
+      padding: EdgeInsets.only(left: 8.0, right: 8.0 + underButton),
       child: Row(
         children: <Widget>[
           Expanded(

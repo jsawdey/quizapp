@@ -1111,6 +1111,14 @@ void main() {
       expect(scoreLine('7/10 right · streak 3 · \$4,200'), findsOneWidget);
     });
 
+    test('large numbers get thousands separators', () {
+      const big = Score(answered: 1234, right: 987, streak: 45, best: 120,
+          dollars: -123400, valued: 1100);
+      expect(describeScore(big), '987/1,234 right · streak 45 · −\$123,400');
+      expect(describeScoreAloud(big),
+          'Score: 987 right out of 1,234, streak 45, minus 123,400 dollars');
+    });
+
     testWidgets('a long score fits on a small screen', (WidgetTester tester) async {
       tester.view.physicalSize = const Size(320, 480);
       tester.view.devicePixelRatio = 1.0;
@@ -1255,6 +1263,24 @@ void main() {
         await tester.pump();
         expect(tester.takeException(), isNull);
       });
+    });
+
+    testWidgets('Hide Question stays clear of the floating button', (WidgetTester tester) async {
+      addTearDown(tester.view.reset);
+      tester.view.devicePixelRatio = 1.0;
+      for (final width in [360.0, 1280.0]) {
+        tester.view.physicalSize = Size(width, 740);
+        keeper = ScoreKeeper(store: scores, initial: onARoll);
+        await pumpScored(tester);
+        final hide = tester.getRect(hideButton());
+        final button = tester.getRect(find.byType(FloatingActionButton));
+        expect(hide.overlaps(button), isFalse, reason: 'at $width wide');
+        expect(tester.getRect(scoreLine()).overlaps(hide), isFalse, reason: 'at $width wide');
+      }
+      // In a wide window the button is beside the board, so Hide Question
+      // keeps to the board's edge.
+      final board = tester.getRect(find.byType(ChoiceListWidget));
+      expect(tester.getRect(hideButton()).right, closeTo(board.right - 4.0, 8.0));
     });
 
     testWidgets('without a keeper there is no score', (WidgetTester tester) async {
