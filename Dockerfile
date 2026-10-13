@@ -13,17 +13,23 @@ ARG FLUTTER_VERSION=3.47.6
 FROM --platform=$BUILDPLATFORM buildpack-deps:bookworm AS web
 ARG FLUTTER_VERSION
 
+# Flutter warns against running as root, so the build runs as a user of its
+# own, which owns the SDK and the sources.
+RUN useradd --create-home builder
+USER builder
+WORKDIR /home/builder
+
 # No official Flutter image has this version, so clone it at its tag.
 RUN git clone --quiet --depth 1 --branch "${FLUTTER_VERSION}" \
-        https://github.com/flutter/flutter.git /opt/flutter
-ENV PATH=/opt/flutter/bin:$PATH
+        https://github.com/flutter/flutter.git flutter
+ENV PATH=/home/builder/flutter/bin:$PATH
 RUN flutter --disable-analytics > /dev/null && flutter precache --web
 
-WORKDIR /src
+WORKDIR /home/builder/src
 # Packages first, so a change to lib/ doesn't fetch them again.
-COPY pubspec.yaml pubspec.lock ./
+COPY --chown=builder pubspec.yaml pubspec.lock ./
 RUN flutter pub get
-COPY . .
+COPY --chown=builder . .
 # --no-web-resources-cdn: load nothing from Google, so the page works on a
 # network without internet access.
 RUN flutter build web --no-web-resources-cdn
@@ -34,7 +40,7 @@ FROM python:3.13-slim
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
 WORKDIR /app
 COPY tool/serve_clues.py tool/build_clue_db.py tool/build_trivia_db.py tool/
-COPY --from=web /src/build/web web/
+COPY --from=web /home/builder/src/build/web web/
 
 # The scripts default to data/ and assets/db/ under the repository root; both
 # lead to the volume, so the databases, the downloads they're built from and
