@@ -58,3 +58,6 @@ assets/db/*
 
 # Local question source settings (see config/question_source.example.json)
 config/question_source.json
+
+# Settings for compose.yaml (see .env.example)
+.env

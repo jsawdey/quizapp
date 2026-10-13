@@ -1,0 +1,16 @@
+# Only what the Dockerfile's web build needs. Above all, nothing from data/
+# or assets/db/: the image never holds questions (docs/docker-plan.md §3).
+.git
+.claude
+.dart_tool
+.env
+build
+data
+assets/db/*
+!assets/db/.gitkeep
+config/question_source.json
+android
+ios
+linux
+test
+**/__pycache__

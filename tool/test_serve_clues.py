@@ -1,15 +1,20 @@
 """Tests for serve_clues.py. Run with: python3 -m unittest discover tool"""
 
+import contextlib
 import email.utils
 import http.client
+import io
 import json
 import os
 import random
+import signal
 import sqlite3
+import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+import unittest.mock
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -222,6 +227,72 @@ class ServeCluesTest(ServerTestCase):
 
     def test_main_needs_a_database(self):
         self.assertEqual(serve_clues.main(['--db', str(self.dir / 'missing.db')]), 1)
+
+    def test_main_says_when_reports_cannot_be_kept(self):
+        # A folder that can't be created, even by root: its parent is a file.
+        reports = self.dir / 'clues.db' / 'reports.db'
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = serve_clues.main(['--db', str(self.db), '--reports', str(reports)])
+        self.assertEqual(code, 1)
+        self.assertIn(f'cannot keep reported questions in {reports.resolve()}',
+                      stderr.getvalue())
+
+
+class ServerSettingsTest(unittest.TestCase):
+
+    def parse(self, argv, **environ):
+        with unittest.mock.patch.dict(os.environ, environ):
+            for name in ('QUIZ_DB', 'QUIZ_TOKEN'):
+                if name not in environ:
+                    os.environ.pop(name, None)
+            return serve_clues.parse_args(argv)
+
+    def test_defaults(self):
+        args = self.parse([])
+        self.assertEqual(args.db, serve_clues.DEFAULT_DB)
+        self.assertIsNone(args.token)
+
+    def test_environment_stands_in_for_flags(self):
+        args = self.parse([], QUIZ_DB='/data/trivia.db', QUIZ_TOKEN='s3cret')
+        self.assertEqual(args.db, Path('/data/trivia.db'))
+        self.assertEqual(args.token, 's3cret')
+
+    def test_flags_win(self):
+        args = self.parse(['--db', 'other.db', '--token', 'flag'],
+                          QUIZ_DB='/data/trivia.db', QUIZ_TOKEN='s3cret')
+        self.assertEqual(args.db, Path('other.db'))
+        self.assertEqual(args.token, 'flag')
+
+    def test_empty_values_are_unset(self):
+        args = self.parse([], QUIZ_DB='', QUIZ_TOKEN='')
+        self.assertEqual(args.db, serve_clues.DEFAULT_DB)
+        self.assertIsNone(args.token)
+
+
+class ServerProcessTest(unittest.TestCase):
+
+    def test_stops_cleanly_on_sigterm(self):
+        # docker stop sends SIGTERM. Without a handler the process would end
+        # with -SIGTERM here, and be ignored altogether as a container's
+        # first process.
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+            write_tsv(tmp / 'sample.tsv', SAMPLE_ROWS)
+            build_clue_db.build(tmp / 'sample.tsv', tmp / 'clues.db', 'test', 'abc123')
+            env = {k: v for k, v in os.environ.items() if not k.startswith('QUIZ_')}
+            server = subprocess.Popen(
+                [sys.executable, str(Path(serve_clues.__file__)), '--db', str(tmp / 'clues.db'),
+                 '--reports', str(tmp / 'reports.db'), '--port', '0', '--quiet'],
+                stdout=subprocess.PIPE, text=True, env=env)
+            try:
+                self.assertIn('Serving 6 clues', server.stdout.readline())
+                server.send_signal(signal.SIGTERM)
+                self.assertEqual(server.wait(timeout=10), 0)
+            finally:
+                server.kill()
+                server.wait()
+                server.stdout.close()
 
 
 class ServeTriviaTest(ServerTestCase):

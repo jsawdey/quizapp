@@ -1,0 +1,26 @@
+# Runs the question server and the web UI, for a NAS on your own network.
+# See "Running on a NAS with Docker" in README.md.
+#
+#   cp .env.example .env              # choose the database, set a token
+#   docker compose run --rm quizapp python3 tool/build_clue_db.py
+#   docker compose up -d --build
+#
+# Then play at http://<nas>:8080/. Personal use only for the clue database:
+# keep the port off the internet; Tailscale (tailscale serve --bg 8080 on the
+# NAS) gives you https from elsewhere.
+services:
+  quizapp:
+    build: .
+    image: quizapp
+    restart: unless-stopped
+    # The container's user must be able to write to ./data. If ./data on the
+    # NAS belongs to someone other than uid 1000, set their ids here
+    # (id -u and id -g; on Synology often 1026:100).
+    # user: "1026:100"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/data
+    environment:
+      QUIZ_DB: ${QUIZ_DB:-/data/clues.db}
+      QUIZ_TOKEN: ${QUIZ_TOKEN:-}
