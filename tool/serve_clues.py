@@ -30,6 +30,9 @@ API (docs/question-backend-plan.md section 7):
 With --token, the API needs the bearer token but the web UI's files don't:
 they hold no clues, and the page asks for the token.
 
+The environment variables QUIZ_DB and QUIZ_TOKEN, if set, stand in for --db
+and --token (the Docker image uses them; see docs/docker-plan.md).
+
 Reported questions are kept in a separate database (--reports) and never
 served again, so hiding one on one device hides it on all of them.
 
@@ -43,7 +46,9 @@ import email.utils
 import hmac
 import json
 import mimetypes
+import os
 import random
+import signal
 import sqlite3
 import sys
 import threading
@@ -92,6 +97,22 @@ WEB_CONTENT_TYPES = {
 }
 
 
+class ReportsUnavailable(Exception):
+    """The reports database can't be created or opened."""
+
+
+def load_reported(reports_path, create_table, select_keys):
+    """Creates the reported-question table if needed; returns the reported keys."""
+    try:
+        reports_path.parent.mkdir(parents=True, exist_ok=True)
+        with contextlib.closing(sqlite3.connect(reports_path)) as conn:
+            conn.execute(create_table)
+            return {row[0] for row in conn.execute(select_keys)}
+    except (OSError, sqlite3.Error) as e:
+        # Often a Docker volume owned by another user (docs/docker-plan.md).
+        raise ReportsUnavailable(f'cannot keep reported questions in {reports_path}: {e}') from e
+
+
 class BadRequest(Exception):
     pass
 
@@ -134,12 +155,10 @@ class ClueStore:
             self.namespace = meta.get('dataset_namespace', 'jwolle1')
             self.max_id = conn.execute('SELECT MAX(id) FROM clues').fetchone()[0] or 0
 
-        self.reports_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._reports() as conn:
-            conn.execute('''CREATE TABLE IF NOT EXISTS reported (
-                              clue_key    INTEGER PRIMARY KEY,
-                              reported_at TEXT NOT NULL)''')
-            self.reported = {row[0] for row in conn.execute('SELECT clue_key FROM reported')}
+        self.reported = load_reported(self.reports_path, '''
+            CREATE TABLE IF NOT EXISTS reported (
+              clue_key    INTEGER PRIMARY KEY,
+              reported_at TEXT NOT NULL)''', 'SELECT clue_key FROM reported')
 
     def _clues(self):
         # One connection per call: the server handles requests on many threads.
@@ -278,13 +297,11 @@ class TriviaStore:
             self.categories = [row[0] for row in conn.execute(
                 'SELECT DISTINCT category FROM questions ORDER BY category')]
 
-        self.reports_path.parent.mkdir(parents=True, exist_ok=True)
-        with self._reports() as conn:
-            # Trivia keys are text, unlike clue keys, so they get a table of their own.
-            conn.execute('''CREATE TABLE IF NOT EXISTS reported_trivia (
-                              key         TEXT PRIMARY KEY,
-                              reported_at TEXT NOT NULL)''')
-            self.reported = {row[0] for row in conn.execute('SELECT key FROM reported_trivia')}
+        # Trivia keys are text, unlike clue keys, so they get a table of their own.
+        self.reported = load_reported(self.reports_path, '''
+            CREATE TABLE IF NOT EXISTS reported_trivia (
+              key         TEXT PRIMARY KEY,
+              reported_at TEXT NOT NULL)''', 'SELECT key FROM reported_trivia')
 
     def _questions(self):
         # One connection per call: the server handles requests on many threads.
@@ -580,8 +597,9 @@ def make_server(store, host='127.0.0.1', port=8080, token=None, quiet=False, web
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--db', type=Path, default=DEFAULT_DB,
-                        help='clue or trivia database to serve (default: %(default)s)')
+    parser.add_argument('--db', type=Path, default=os.environ.get('QUIZ_DB') or DEFAULT_DB,
+                        help='clue or trivia database to serve; QUIZ_DB if set '
+                             '(default: %(default)s)')
     parser.add_argument('--reports', type=Path, default=DEFAULT_REPORTS,
                         help='where reported clues are kept (default: %(default)s)')
     parser.add_argument('--host', default='127.0.0.1',
@@ -589,13 +607,18 @@ def parse_args(argv):
                              '(default: %(default)s)')
     parser.add_argument('--port', type=int, default=8080,
                         help='port to listen on; 0 picks a free one (default: %(default)s)')
-    parser.add_argument('--token',
-                        help='require this bearer token (QUESTION_API_TOKEN in the app)')
+    parser.add_argument('--token', default=os.environ.get('QUIZ_TOKEN') or None,
+                        help='require this bearer token (QUESTION_API_TOKEN in the app); '
+                             'QUIZ_TOKEN if set')
     parser.add_argument('--web', type=Path, metavar='DIR',
                         help='also serve the web UI from this Flutter web build '
                              '(build/web after flutter build web --no-web-resources-cdn)')
     parser.add_argument('--quiet', action='store_true', help="don't log each request")
     return parser.parse_args(argv)
+
+
+def _stop(signum, frame):
+    raise KeyboardInterrupt
 
 
 def main(argv=None):
@@ -610,7 +633,7 @@ def main(argv=None):
         return 1
     try:
         store = open_store(args.db, args.reports)
-    except (ValueError, sqlite3.Error) as e:
+    except (ValueError, sqlite3.Error, ReportsUnavailable) as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
     server = make_server(store, args.host, args.port, args.token, args.quiet, args.web)
@@ -626,6 +649,9 @@ def main(argv=None):
     if args.host not in ('127.0.0.1', 'localhost', '::1') and store.license is None:
         print('Personal use only: keep this server off the internet (see the dataset terms '
               'in README.md).' + ('' if args.token else ' Consider --token.'), flush=True)
+    # docker stop sends SIGTERM, which a container's first process ignores
+    # unless it has a handler; stop as Ctrl-C does.
+    signal.signal(signal.SIGTERM, _stop)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
