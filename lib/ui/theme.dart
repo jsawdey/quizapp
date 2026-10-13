@@ -5,6 +5,12 @@ class CustomAppTheme {
   /// The board's blue, behind the panels and the answer choices.
   static const Color boardBlue = Color(0xFF060CE9);
 
+  /// A right answer, and Got it.
+  static const Color right = Color(0xFF2E7D32);
+
+  /// A wrong pick, and Missed it.
+  static const Color wrong = Color(0xFFC62828);
+
   // Question/Answer theme constants
   static const String _qaFontFamily = 'Korinna';
   static const double _qaFontSize = 28.0;

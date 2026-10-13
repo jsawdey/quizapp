@@ -1,13 +1,18 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:quizapp/config/source_choice.dart';
 import 'package:quizapp/controller/question_repository.dart';
+import 'package:quizapp/controller/score_keeper.dart';
 import 'package:quizapp/data/question_source.dart';
 import 'package:quizapp/model/question.dart';
 import 'package:quizapp/ui/filter_sheet.dart';
 import 'package:quizapp/ui/quiz_question/quiz_ui_library.dart';
+import 'package:quizapp/ui/score_dialog.dart';
+import 'package:quizapp/ui/score_line_widget.dart';
 import 'package:quizapp/ui/theme.dart';
 
 enum DialogAnswer {
@@ -72,13 +77,17 @@ class _ShortcutAction<T extends Intent> extends Action<T> {
 }
 
 class QuizPage extends StatefulWidget {
-  const QuizPage({super.key, required this.title, required this.repository, this.sources});
+  const QuizPage({super.key, required this.title, required this.repository, this.sources,
+    this.scoreKeeper});
 
   final String title;
   final QuestionRepository repository;
 
   /// The sources the app can switch between; no switch if null.
   final SourceChooser? sources;
+
+  /// Keeps score; no scoring if null.
+  final ScoreKeeper? scoreKeeper;
 
   @override
   State<QuizPage> createState() => _QuizPageState();
@@ -91,6 +100,12 @@ class _QuizPageState extends State<QuizPage> {
   bool _showAnswer = false;
   /// The choice picked for a multiple-choice question; null until then.
   String? _picked;
+  /// Whether the response was shown before a choice was picked, so the pick
+  /// doesn't count.
+  bool _peeked = false;
+  /// Whether you got an open question: Got it is true, Missed it false, and
+  /// null before either.
+  bool? _gotIt;
   bool _questionHidden = false;
   bool _showOverlay = false;
   /// Whether the error is a missing or rejected token the user can enter.
@@ -106,6 +121,9 @@ class _QuizPageState extends State<QuizPage> {
 
   /// The board's widest size, so it keeps its shape in a wide browser window.
   static const maxBoardWidth = 900.0;
+
+  /// How far the floating button reaches in from the right of the screen.
+  static const _floatingButtonReach = kFloatingActionButtonMargin + 56.0;
 
   /// Whether to mention keyboard shortcuts: in a browser or on a desktop.
   static bool get _hasKeyboard => kIsWeb || const {TargetPlatform.linux,
@@ -137,10 +155,13 @@ class _QuizPageState extends State<QuizPage> {
       // A browser drops focus along with the token field, which would leave
       // the shortcuts dead until the page is clicked.
       if (_needsToken) _pageFocus.requestFocus();
+      widget.scoreKeeper?.show(question);
       setState(() {
         _current = question;
         _showAnswer = false;
         _picked = null;
+        _peeked = false;
+        _gotIt = null;
         _questionHidden = false;
         _showOverlay = false;
         _needsToken = false;
@@ -229,19 +250,56 @@ class _QuizPageState extends State<QuizPage> {
     await _loadQuestion();
   }
 
+  /// Moves on to another question. If the one showing has no result, that
+  /// is a skip, which ends the streak.
+  Future<void> _nextQuestion() async {
+    if (_loading) return;
+    if (_current != null) widget.scoreKeeper?.skip();
+    await _loadQuestion();
+  }
+
   void _toggleAnswer() {
-    if (_current == null) return;
-    setState(() => _showAnswer = !_showAnswer);
+    final current = _current;
+    if (current == null) return;
+    setState(() {
+      _showAnswer = !_showAnswer;
+      if (current.choices != null && _picked == null) _peeked = true;
+    });
   }
 
   void _pick(String choice) {
-    if (_picked != null) return;
+    final current = _current;
+    if (_picked != null || current == null) return;
     setState(() => _picked = choice);
+    if (!_peeked) widget.scoreKeeper?.record(right: choice == current.answer);
   }
 
   bool _canPick(int index) {
     final choices = _current?.choices;
     return choices != null && index < choices.length && _picked == null && !_loading;
+  }
+
+  /// Whether the question showing is scored with Got it and Missed it.
+  bool get _selfReported {
+    final current = _current;
+    return widget.scoreKeeper != null && current != null && current.choices == null;
+  }
+
+  /// Whether Got it and Missed it are showing: once the response has been,
+  /// so a result stays in view when the card is flipped back.
+  bool get _showsSelfReport => _selfReported && (_showAnswer || _gotIt != null);
+
+  /// Got it is 1 and Missed it 2, among the number keys.
+  bool _canReport(int index) => _showsSelfReport && index < 2 && !_loading;
+
+  /// Counts the open question showing as got or missed. Choosing the other
+  /// button replaces the result.
+  void _report(bool gotIt) {
+    final keeper = widget.scoreKeeper;
+    // Once loading, the next question may already have been asked for.
+    if (keeper == null || _loading || _gotIt == gotIt) return;
+    setState(() => _gotIt = gotIt);
+    keeper.record(right: gotIt);
   }
 
   // The keyboard shortcuts only work while a question (or, for F, the
@@ -250,12 +308,19 @@ class _QuizPageState extends State<QuizPage> {
   late final Map<Type, Action<Intent>> _shortcutActions = {
     _FlipIntent: _ShortcutAction<_FlipIntent>(() => _current != null, _toggleAnswer),
     _NextIntent: _ShortcutAction<_NextIntent>(
-        () => _current != null && !_loading, _loadQuestion),
+        () => _current != null && !_loading, _nextQuestion),
     _HideIntent: _ShortcutAction<_HideIntent>(
         () => _current != null && !_questionHidden && !_loading, _hideQuestion),
     _FilterIntent: _ShortcutAction<_FilterIntent>(
         () => _canFilter && (_current != null || _noMatch) && !_loading, _openFilters),
-    _PickIntent: _PickAction(_canPick, (index) => _pick(_current!.choices![index])),
+    _PickIntent: _PickAction((index) => _canPick(index) || _canReport(index), (index) {
+      final choices = _current?.choices;
+      if (choices != null) {
+        _pick(choices[index]);
+      } else {
+        _report(index == 0);
+      }
+    }),
   };
 
   bool get _canFilter => widget.repository.supportedFilters.isNotEmpty;
@@ -483,6 +548,36 @@ class _QuizPageState extends State<QuizPage> {
         ),
       );
 
+  /// The row under the board: Hide Question, with the score line to its left
+  /// when keeping score.
+  Widget _buildBottomRow(Widget hideButton) {
+    final keeper = widget.scoreKeeper;
+    if (keeper == null) return Center(child: hideButton);
+    // On a narrow screen the floating button sits over the board's bottom
+    // right corner, so Hide Question keeps out from under it.
+    final screenWidth = MediaQuery.sizeOf(context).width;
+    final besideBoard = (screenWidth - min(screenWidth, maxBoardWidth)) / 2;
+    final underButton = max(0.0, _floatingButtonReach - besideBoard);
+    return Padding(
+      padding: EdgeInsets.only(left: 8.0, right: 8.0 + underButton),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: ListenableBuilder(
+                listenable: keeper,
+                builder: (context, _) => ScoreLineWidget(score: keeper.score,
+                    onPressed: () => showScoreDialog(context, keeper)),
+              ),
+            ),
+          ),
+          hideButton,
+        ],
+      ),
+    );
+  }
+
   Widget _buildQuestionBody() {
     final current = _current;
     final choices = current?.choices;
@@ -502,7 +597,7 @@ class _QuizPageState extends State<QuizPage> {
                       detail: _detailFor(current), comment: current.categoryComment)),
             ),
             Flexible(
-                flex: choices == null ? 4 : 3,
+                flex: choices == null && !_selfReported ? 4 : 3,
                 child: _buildQuestionAnswerWidget(),
             ),
             if (current != null && choices != null)
@@ -515,21 +610,32 @@ class _QuizPageState extends State<QuizPage> {
                       numbered: _hasKeyboard && choices.length <= _pickKeys),
                 ),
               ),
-            Flexible(
-              flex: 1,
-              child: Center(
-                child: TextButton(
-                    style: TextButton.styleFrom(padding: const EdgeInsets.all(4.0)),
-                    onPressed: canHide ? _hideQuestion : null,
-                    child: Text(
-                      'Hide Question',
-                      style: TextStyle(
-                        color: canHide ? Colors.white : Colors.white38,
-                        decoration: TextDecoration.underline,
-                      ),
-                    )
+            // Kept while the question shows, so the card doesn't change size
+            // when the response is revealed.
+            if (_selfReported)
+              Expanded(
+                flex: 1,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                  child: _showsSelfReport
+                      ? SelfReportWidget(gotIt: _gotIt, onReport: _report,
+                          numbered: _hasKeyboard)
+                      : null,
                 ),
               ),
+            Flexible(
+              flex: 1,
+              child: _buildBottomRow(TextButton(
+                  style: TextButton.styleFrom(padding: const EdgeInsets.all(4.0)),
+                  onPressed: canHide ? _hideQuestion : null,
+                  child: Text(
+                    'Hide Question',
+                    style: TextStyle(
+                      color: canHide ? Colors.white : Colors.white38,
+                      decoration: TextDecoration.underline,
+                    ),
+                  )
+              )),
             ),
           ],
         ),
@@ -580,11 +686,12 @@ class _QuizPageState extends State<QuizPage> {
         ),
       ),
       floatingActionButton: FloatingActionButton(
-        onPressed: _loading ? null : _loadQuestion,
+        onPressed: _loading ? null : _nextQuestion,
         tooltip: _hasKeyboard
             ? 'Load Random Question (N). Space shows the response; H hides the question'
                 '${_canFilter ? '; F filters $_filtered' : ''}'
-                '${_current?.choices != null ? '; 1–4 pick a choice' : ''}.'
+                '${_current?.choices != null ? '; 1–4 pick a choice' : ''}'
+                '${_showsSelfReport ? '; 1 or 2 says whether you got it' : ''}.'
             : 'Load Random Question',
         child: const Icon(Icons.refresh),
       ),

@@ -2,8 +2,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:quizapp/config/source_choice.dart';
 import 'package:quizapp/controller/question_repository.dart';
+import 'package:quizapp/controller/score_keeper.dart';
 import 'package:quizapp/data/filter_store.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
+import 'package:quizapp/data/score_store.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/token_store.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -30,16 +32,21 @@ Future<void> main() async {
     credentials: credentials,
     filterStore: SharedPrefsFilterStore(),
   );
-  runApp(QuizApp(repository: repository, sources: sources));
+  // Read before the first question can be scored.
+  final scoreKeeper = await ScoreKeeper.load(SharedPrefsScoreStore());
+  runApp(QuizApp(repository: repository, sources: sources, scoreKeeper: scoreKeeper));
 }
 
 class QuizApp extends StatelessWidget {
-  const QuizApp({super.key, required this.repository, this.sources});
+  const QuizApp({super.key, required this.repository, this.sources, this.scoreKeeper});
 
   final QuestionRepository repository;
 
   /// The sources to offer in the app; none if null.
   final SourceChooser? sources;
+
+  /// Keeps score; no scoring if null.
+  final ScoreKeeper? scoreKeeper;
 
   // This widget is the root of your application.
   @override
@@ -52,7 +59,7 @@ class QuizApp extends StatelessWidget {
         useMaterial3: false,
       ),
       home: QuizPage(title: 'Trivia', repository: repository,
-          sources: sources),
+          sources: sources, scoreKeeper: scoreKeeper),
     );
   }
 }
