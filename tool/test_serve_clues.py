@@ -235,7 +235,8 @@ class ServeCluesTest(ServerTestCase):
         with contextlib.redirect_stderr(stderr):
             code = serve_clues.main(['--db', str(self.db), '--reports', str(reports)])
         self.assertEqual(code, 1)
-        self.assertIn(f'cannot keep reported questions in {reports}', stderr.getvalue())
+        self.assertIn(f'cannot keep reported questions in {reports.resolve()}',
+                      stderr.getvalue())
 
 
 class ServerSettingsTest(unittest.TestCase):

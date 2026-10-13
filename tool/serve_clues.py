@@ -110,7 +110,8 @@ def load_reported(reports_path, create_table, select_keys):
             return {row[0] for row in conn.execute(select_keys)}
     except (OSError, sqlite3.Error) as e:
         # Often a Docker volume owned by another user (docs/docker-plan.md).
-        raise ReportsUnavailable(f'cannot keep reported questions in {reports_path}: {e}') from e
+        raise ReportsUnavailable(
+            f'cannot keep reported questions in {reports_path.resolve()}: {e}') from e
 
 
 class BadRequest(Exception):
