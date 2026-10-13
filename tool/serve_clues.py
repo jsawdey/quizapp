@@ -26,6 +26,9 @@ API (docs/question-backend-plan.md section 7):
     GET  /v1/random?count=10[&category=Art&category=History][&difficulty=easy,hard]
          (trivia; an empty "questions" list when nothing matches the filters)
     POST /v1/questions/{key}/report
+    POST /v1/history   answers and games from the player's devices
+    GET  /v1/history?after=SEQ[&limit=1000]   what changed after SEQ
+         (score history; docs/history-plan.md section 4)
 
 With --token, the API needs the bearer token but the web UI's files don't:
 they hold no clues, and the page asks for the token.
@@ -34,7 +37,8 @@ The environment variables QUIZ_DB and QUIZ_TOKEN, if set, stand in for --db
 and --token (the Docker image uses them; see docs/docker-plan.md).
 
 Reported questions are kept in a separate database (--reports) and never
-served again, so hiding one on one device hides it on all of them.
+served again, so hiding one on one device hides it on all of them. The score
+history is kept in another (--history), and handed back to every device.
 
 Only the Python standard library is required.
 """
@@ -48,6 +52,8 @@ import json
 import mimetypes
 import os
 import random
+import re
+import secrets
 import signal
 import sqlite3
 import sys
@@ -61,6 +67,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_DB = REPO_ROOT / 'assets' / 'db' / 'clues.db'
 # Not next to clues.db: everything in assets/db/ is bundled into the app.
 DEFAULT_REPORTS = REPO_ROOT / 'data' / 'reports.db'
+DEFAULT_HISTORY = REPO_ROOT / 'data' / 'history.db'
 
 SUPPORTED_SCHEMA_VERSION = 1
 MAX_COUNT = 50
@@ -97,8 +104,8 @@ WEB_CONTENT_TYPES = {
 }
 
 
-class ReportsUnavailable(Exception):
-    """The reports database can't be created or opened."""
+class StorageUnavailable(Exception):
+    """A database of the server's own (reports, history) can't be created or opened."""
 
 
 def load_reported(reports_path, create_table, select_keys):
@@ -110,11 +117,15 @@ def load_reported(reports_path, create_table, select_keys):
             return {row[0] for row in conn.execute(select_keys)}
     except (OSError, sqlite3.Error) as e:
         # Often a Docker volume owned by another user (docs/docker-plan.md).
-        raise ReportsUnavailable(
+        raise StorageUnavailable(
             f'cannot keep reported questions in {reports_path.resolve()}: {e}') from e
 
 
 class BadRequest(Exception):
+    pass
+
+
+class TooLarge(Exception):
     pass
 
 
@@ -380,6 +391,297 @@ class TriviaStore:
         return True
 
 
+# --- Score history (docs/history-plan.md section 4) ---------------------------
+
+HISTORY_SCHEMA_VERSION = 1
+MAX_HISTORY_BODY = 1024 * 1024
+MAX_HISTORY_ANSWERS = 500
+MAX_HISTORY_GAMES = 100
+MAX_HISTORY_PAGE = 1000
+HISTORY_FORMATS = ('open', 'multiple_choice', 'true_false')
+
+HISTORY_SCHEMA = (
+    '''CREATE TABLE IF NOT EXISTS answers (
+         id TEXT PRIMARY KEY, seq INTEGER NOT NULL UNIQUE, game TEXT NOT NULL,
+         answered_at TEXT NOT NULL, utc_offset INTEGER NOT NULL,
+         namespace TEXT NOT NULL, question_key TEXT NOT NULL, category TEXT NOT NULL,
+         format TEXT NOT NULL, round INTEGER, board_row INTEGER, value INTEGER,
+         daily_double INTEGER NOT NULL, difficulty TEXT, correct INTEGER NOT NULL,
+         received_at TEXT NOT NULL)''',
+    '''CREATE TABLE IF NOT EXISTS games (
+         id TEXT PRIMARY KEY, seq INTEGER NOT NULL UNIQUE,
+         started TEXT, updated_at TEXT NOT NULL,
+         answered INTEGER NOT NULL, correct INTEGER NOT NULL, best INTEGER NOT NULL,
+         dollars INTEGER NOT NULL, valued INTEGER NOT NULL)''',
+    'CREATE TABLE IF NOT EXISTS meta (name TEXT PRIMARY KEY, value TEXT NOT NULL)',
+)
+
+# Columns as stored, and the JSON name of each where it differs: key, row and
+# right are SQL keywords.
+ANSWER_COLUMNS = ('id', 'game', 'answered_at', 'utc_offset', 'namespace', 'question_key',
+                  'category', 'format', 'round', 'board_row', 'value', 'daily_double',
+                  'difficulty', 'correct')
+GAME_COLUMNS = ('id', 'started', 'updated_at', 'answered', 'correct', 'best', 'dollars',
+                'valued')
+JSON_NAMES = {'question_key': 'key', 'board_row': 'row', 'correct': 'right'}
+# Answers' true-or-false columns; a game's correct is a count.
+ANSWER_BOOLEANS = {'daily_double', 'correct'}
+
+_HISTORY_ID = re.compile(r'[0-9a-f]{32}')
+_UTC_TIME = re.compile(r'(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.(\d{1,9}))?Z')
+
+
+class HistoryStore:
+    """Every answer and game the player's devices send.
+
+    Rows are kept as sent. Each row inserted or changed gets the next seq, a
+    counter shared by both tables, so a device fetches what changed since it
+    last asked. The history id is made with the database; a device that sees
+    it change knows the history was replaced and starts again.
+    """
+
+    def __init__(self, path):
+        self.path = Path(path)
+        self._lock = threading.Lock()
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self._transaction() as conn:
+                for statement in HISTORY_SCHEMA:
+                    conn.execute(statement)
+                for name, value in (('schema_version', str(HISTORY_SCHEMA_VERSION)),
+                                    ('last_seq', '0'), ('history_id', secrets.token_hex(16))):
+                    conn.execute('INSERT OR IGNORE INTO meta (name, value) VALUES (?, ?)',
+                                 (name, value))
+                meta = dict(conn.execute('SELECT name, value FROM meta'))
+        except (OSError, sqlite3.Error) as e:
+            raise StorageUnavailable(
+                f'cannot keep the score history in {self.path.resolve()}: {e}') from e
+        if meta['schema_version'] != str(HISTORY_SCHEMA_VERSION):
+            raise ValueError(f'{self.path} has history schema version '
+                             f'{meta["schema_version"]}; this server reads version '
+                             f'{HISTORY_SCHEMA_VERSION}.')
+        self.history_id = meta['history_id']
+
+    @contextlib.contextmanager
+    def _transaction(self):
+        # BEGIN IMMEDIATE takes the write lock up front, so two servers on one
+        # file (clues and trivia) can't hand out the same seq.
+        conn = sqlite3.connect(self.path, timeout=10, isolation_level=None)
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute('BEGIN IMMEDIATE')
+            try:
+                yield conn
+            except BaseException:
+                conn.execute('ROLLBACK')
+                raise
+            conn.execute('COMMIT')
+        finally:
+            conn.close()
+
+    def put(self, body):
+        """Stores an upload, parsed by parse_history_upload. An answer replaces
+        one with the same id; a game row replaces one that isn't newer."""
+        answers, games = body
+        now = _utc_now()
+        with self._lock, self._transaction() as conn:
+            seq = int(conn.execute("SELECT value FROM meta WHERE name = 'last_seq'")
+                      .fetchone()[0])
+            for answer in answers:
+                old = conn.execute('SELECT * FROM answers WHERE id = ?',
+                                   (answer['id'],)).fetchone()
+                if old is not None and all(old[c] == answer[c] for c in ANSWER_COLUMNS):
+                    continue
+                seq += 1
+                conn.execute(f'''INSERT OR REPLACE INTO answers
+                                 ({", ".join(ANSWER_COLUMNS)}, seq, received_at)
+                                 VALUES ({", ".join("?" * (len(ANSWER_COLUMNS) + 2))})''',
+                             [answer[c] for c in ANSWER_COLUMNS] + [seq, now])
+            for game in games:
+                old = conn.execute('SELECT * FROM games WHERE id = ?', (game['id'],)).fetchone()
+                if old is not None and (old['updated_at'] > game['updated_at'] or
+                                        all(old[c] == game[c] for c in GAME_COLUMNS)):
+                    continue
+                seq += 1
+                conn.execute(f'''INSERT OR REPLACE INTO games ({", ".join(GAME_COLUMNS)}, seq)
+                                 VALUES ({", ".join("?" * (len(GAME_COLUMNS) + 1))})''',
+                             [game[c] for c in GAME_COLUMNS] + [seq])
+            conn.execute("UPDATE meta SET value = ? WHERE name = 'last_seq'", (str(seq),))
+
+    def changes(self, after=0, limit=MAX_HISTORY_PAGE):
+        """The answers and games changed after seq `after`, at most `limit` rows."""
+        with self._lock, self._transaction() as conn:
+            rows = []
+            for table, columns, booleans in (('answers', ANSWER_COLUMNS, ANSWER_BOOLEANS),
+                                             ('games', GAME_COLUMNS, set())):
+                rows += [(row['seq'], table, _history_json(row, columns, booleans))
+                         for row in conn.execute(
+                    f'SELECT * FROM {table} WHERE seq > ? ORDER BY seq LIMIT ?',
+                    (after, limit + 1))]
+        rows.sort(key=lambda r: r[0])
+        page = rows[:limit]
+        return {
+            'history': self.history_id,
+            'answers': [item for _, table, item in page if table == 'answers'],
+            'games': [item for _, table, item in page if table == 'games'],
+            'next': page[-1][0] if page else after,
+            'more': len(rows) > limit,
+        }
+
+
+def _utc_now():
+    now = datetime.datetime.now(datetime.timezone.utc)
+    return now.strftime('%Y-%m-%dT%H:%M:%S.') + f'{now.microsecond // 1000:03d}Z'
+
+
+def _history_json(row, columns, booleans):
+    return {JSON_NAMES.get(c, c): bool(row[c]) if c in booleans else row[c]
+            for c in columns}
+
+
+def parse_history_upload(data):
+    """The answers and games of a POST /v1/history body, checked and in column
+    form. Raises BadRequest naming the first problem, or TooLarge."""
+    try:
+        body = json.loads(data)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        raise BadRequest('the body is not JSON')
+    if not isinstance(body, dict):
+        raise BadRequest('the body must be an object with "answers" and "games"')
+    answers, games = body.get('answers', []), body.get('games', [])
+    if not isinstance(answers, list) or not isinstance(games, list):
+        raise BadRequest('"answers" and "games" must be lists')
+    if len(answers) > MAX_HISTORY_ANSWERS or len(games) > MAX_HISTORY_GAMES:
+        raise TooLarge(f'send at most {MAX_HISTORY_ANSWERS} answers and '
+                       f'{MAX_HISTORY_GAMES} games at a time')
+    return ([_parse_answer(a, f'answers[{i}]') for i, a in enumerate(answers)],
+            [_parse_game(g, f'games[{i}]') for i, g in enumerate(games)])
+
+
+def _parse_answer(item, where):
+    f = _Fields(item, where)
+    return {
+        'id': f.id('id'),
+        'game': f.id('game'),
+        'answered_at': f.utc_time('answered_at'),
+        'utc_offset': f.int('utc_offset', -16 * 60, 16 * 60),
+        'namespace': f.text('namespace', 1, 100),
+        'question_key': f.text('key', 1, 200),
+        'category': f.text('category', 0, 300),
+        'format': f.choice('format', HISTORY_FORMATS),
+        'round': f.int('round', 1, 3, optional=True),
+        'board_row': f.int('row', 1, 5, optional=True),
+        'value': f.int('value', 0, 1_000_000, optional=True),
+        'daily_double': f.bool('daily_double'),
+        'difficulty': f.text('difficulty', 1, 20, optional=True),
+        'correct': f.bool('right'),
+    }
+
+
+def _parse_game(item, where):
+    f = _Fields(item, where)
+    game = {
+        'id': f.id('id'),
+        'started': f.date('started', optional=True),
+        'updated_at': f.utc_time('updated_at'),
+        'answered': f.int('answered', 0, 10_000_000),
+        'correct': f.int('right', 0, 10_000_000),
+        'best': f.int('best', 0, 10_000_000),
+        'dollars': f.int('dollars', -10**12, 10**12),
+        'valued': f.int('valued', 0, 10_000_000),
+    }
+    if not (game['correct'] <= game['answered'] and game['valued'] <= game['answered']
+            and game['best'] <= game['correct']):
+        raise BadRequest(f'{where} has counts that can\'t go together')
+    return game
+
+
+class _Fields:
+    """Reads one checked field at a time from a JSON object."""
+
+    def __init__(self, item, where):
+        if not isinstance(item, dict):
+            raise BadRequest(f'{where} must be an object')
+        self.item, self.where = item, where
+
+    def _get(self, name, optional):
+        value = self.item.get(name)
+        if value is None and not optional:
+            raise BadRequest(f'{self.where}.{name} is missing')
+        return value
+
+    def _bad(self, name, what):
+        return BadRequest(f'{self.where}.{name} must be {what}')
+
+    def id(self, name):
+        value = self._get(name, False)
+        if not isinstance(value, str) or not _HISTORY_ID.fullmatch(value):
+            raise self._bad(name, '32 lowercase hex digits')
+        return value
+
+    def text(self, name, shortest, longest, optional=False):
+        value = self._get(name, optional)
+        if value is not None and (not isinstance(value, str)
+                                  or not shortest <= len(value) <= longest):
+            raise self._bad(name, f'text of {shortest} to {longest} characters')
+        return value
+
+    def choice(self, name, choices):
+        value = self._get(name, False)
+        if value not in choices:
+            raise self._bad(name, 'one of ' + ', '.join(choices))
+        return value
+
+    def int(self, name, lowest, highest, optional=False):
+        value = self._get(name, optional)
+        if value is not None and (type(value) is not int or not lowest <= value <= highest):
+            raise self._bad(name, f'a whole number from {lowest} to {highest}')
+        return value
+
+    def bool(self, name):
+        value = self._get(name, False)
+        if type(value) is not bool:
+            raise self._bad(name, 'true or false')
+        return value
+
+    def utc_time(self, name):
+        value = self._get(name, False)
+        match = _UTC_TIME.fullmatch(value) if isinstance(value, str) else None
+        try:
+            if match is None:
+                raise ValueError
+            parts = [int(g) for g in match.groups()[:6]]
+            fraction = (match.group(7) or '0').ljust(3, '0')[:3]
+            datetime.datetime(*parts)
+        except ValueError:
+            raise self._bad(name, 'a UTC time such as 2026-10-13T18:35:10.123Z') from None
+        return '%04d-%02d-%02dT%02d:%02d:%02d.%sZ' % (*parts, fraction)
+
+    def date(self, name, optional=False):
+        value = self._get(name, optional)
+        if value is None:
+            return None
+        try:
+            if not isinstance(value, str):
+                raise ValueError
+            return datetime.date.fromisoformat(value).isoformat()
+        except ValueError:
+            raise self._bad(name, 'a date such as 2026-10-13') from None
+
+
+def parse_history_query(query):
+    """after and limit from a GET /v1/history query string."""
+    params = parse_qs(query)
+    try:
+        after = int(params.get('after', ['0'])[-1])
+        limit = int(params.get('limit', [str(MAX_HISTORY_PAGE)])[-1])
+    except ValueError:
+        raise BadRequest('after and limit must be whole numbers')
+    if after < 0 or not 1 <= limit <= MAX_HISTORY_PAGE:
+        raise BadRequest(f'after must be 0 or more, and limit from 1 to {MAX_HISTORY_PAGE}')
+    return after, limit
+
+
 def _trivia_to_json(row):
     return {
         'key': row['key'],
@@ -479,7 +781,7 @@ def web_build_uses_cdn(web_root):
     return '"useLocalCanvasKit":true' not in bootstrap.replace(' ', '')
 
 
-def make_handler(store, token=None, quiet=False, web_root=None):
+def make_handler(store, token=None, quiet=False, web_root=None, history=None):
     class Handler(BaseHTTPRequestHandler):
         server_version = 'serve_clues/1'
 
@@ -506,7 +808,18 @@ def make_handler(store, token=None, quiet=False, web_root=None):
                 if parts == ['v1', 'info']:
                     if method != 'GET':
                         return self._not_allowed('GET')
-                    return self._send_json(HTTPStatus.OK, store.info())
+                    info = store.info()
+                    if history is not None:
+                        info['history'] = True
+                    return self._send_json(HTTPStatus.OK, info)
+                if parts == ['v1', 'history'] and history is not None:
+                    if method == 'GET':
+                        return self._send_json(HTTPStatus.OK, history.changes(
+                            *parse_history_query(url.query)))
+                    if method != 'POST':
+                        return self._not_allowed('GET, POST')
+                    history.put(parse_history_upload(self._read_body(MAX_HISTORY_BODY)))
+                    return self._send(HTTPStatus.NO_CONTENT)
                 if parts == ['v1', 'random']:
                     if method != 'GET':
                         return self._not_allowed('GET')
@@ -522,7 +835,20 @@ def make_handler(store, token=None, quiet=False, web_root=None):
                     return self._send(HTTPStatus.NO_CONTENT)
             except BadRequest as e:
                 return self._send_json(HTTPStatus.BAD_REQUEST, {'error': str(e)})
+            except TooLarge as e:
+                return self._send_json(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, {'error': str(e)})
             return self._send_json(HTTPStatus.NOT_FOUND, {'error': 'not found'})
+
+        def _read_body(self, limit):
+            try:
+                length = int(self.headers.get('Content-Length', 0))
+            except ValueError:
+                raise BadRequest('Content-Length must be a number')
+            if length > limit:
+                # The body is left unread, so the connection can't be reused.
+                self.close_connection = True
+                raise TooLarge(f'the body must be at most {limit} bytes')
+            return self.rfile.read(length)
 
         def _serve_web(self, method, url_path):
             if method not in ('GET', 'HEAD'):
@@ -588,11 +914,14 @@ def make_handler(store, token=None, quiet=False, web_root=None):
     return Handler
 
 
-def make_server(store, host='127.0.0.1', port=8080, token=None, quiet=False, web_root=None):
-    """web_root, if given, is a Flutter web build to serve outside /v1/."""
+def make_server(store, host='127.0.0.1', port=8080, token=None, quiet=False, web_root=None,
+                history=None):
+    """web_root, if given, is a Flutter web build to serve outside /v1/; history, a
+    HistoryStore for /v1/history."""
     if web_root is not None:
         web_root = Path(web_root).resolve()
-    return ThreadingHTTPServer((host, port), make_handler(store, token, quiet, web_root))
+    return ThreadingHTTPServer((host, port),
+                               make_handler(store, token, quiet, web_root, history))
 
 
 def parse_args(argv):
@@ -603,6 +932,8 @@ def parse_args(argv):
                              '(default: %(default)s)')
     parser.add_argument('--reports', type=Path, default=DEFAULT_REPORTS,
                         help='where reported clues are kept (default: %(default)s)')
+    parser.add_argument('--history', type=Path, default=DEFAULT_HISTORY,
+                        help='where the score history is kept (default: %(default)s)')
     parser.add_argument('--host', default='127.0.0.1',
                         help='address to listen on; 0.0.0.0 for your whole network '
                              '(default: %(default)s)')
@@ -634,10 +965,12 @@ def main(argv=None):
         return 1
     try:
         store = open_store(args.db, args.reports)
-    except (ValueError, sqlite3.Error, ReportsUnavailable) as e:
+        history = HistoryStore(args.history)
+    except (ValueError, sqlite3.Error, StorageUnavailable) as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
-    server = make_server(store, args.host, args.port, args.token, args.quiet, args.web)
+    server = make_server(store, args.host, args.port, args.token, args.quiet, args.web,
+                         history)
     host, port = server.server_address[:2]
     noun = 'clues' if store.kind == 'clues' else 'trivia questions'
     print(f'Serving {store.max_id} {noun} on http://{host}:{port}/v1/random', flush=True)

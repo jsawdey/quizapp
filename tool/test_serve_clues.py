@@ -39,6 +39,7 @@ class ServerTestCase(unittest.TestCase):
         self.dir = Path(self._tmp.name)
         self.db = self.make_db()
         self.reports = self.dir / 'data' / 'reports.db'
+        self.history = serve_clues.HistoryStore(self.dir / 'data' / 'history.db')
         self.web = self.make_web_build()
         self.start()
 
@@ -56,7 +57,7 @@ class ServerTestCase(unittest.TestCase):
     def start(self, token=None):
         self.store = serve_clues.open_store(self.db, self.reports, rng=random.Random(1))
         self.server = serve_clues.make_server(self.store, port=0, token=token, quiet=True,
-                                              web_root=self.web)
+                                              web_root=self.web, history=self.history)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
         self.base = 'http://127.0.0.1:%d' % self.server.server_address[1]
@@ -70,9 +71,13 @@ class ServerTestCase(unittest.TestCase):
         self.stop()
         self._tmp.cleanup()
 
-    def request(self, path, method='GET', headers=None):
-        """Returns (status, parsed JSON body or None)."""
-        req = urllib.request.Request(self.base + path, method=method, headers=headers or {})
+    def request(self, path, method='GET', headers=None, body=None):
+        """Returns (status, parsed JSON body or None). A body other than bytes is
+        sent as JSON."""
+        if body is not None and not isinstance(body, bytes):
+            body = json.dumps(body).encode()
+        req = urllib.request.Request(self.base + path, method=method, headers=headers or {},
+                                     data=body)
         try:
             with urllib.request.urlopen(req) as response:
                 status, body = response.status, response.read()
@@ -239,6 +244,168 @@ class ServeCluesTest(ServerTestCase):
                       stderr.getvalue())
 
 
+def answer(n, **fields):
+    """An answer for POST /v1/history, the nth of game 1."""
+    return {'id': f'{n:032x}', 'game': '1' * 32, 'answered_at': f'2026-10-13T18:{n % 60:02d}:00Z',
+            'utc_offset': -240, 'namespace': 'jwolle1', 'key': str(1000 + n),
+            'category': 'BIOGRAPHIES', 'format': 'open', 'round': 1, 'row': 2, 'value': 400,
+            'daily_double': False, 'difficulty': None, 'right': True, **fields}
+
+
+def game(**fields):
+    return {'id': '1' * 32, 'started': '2026-10-13', 'updated_at': '2026-10-13T18:35:10.123Z',
+            'answered': 10, 'right': 7, 'best': 4, 'dollars': 4200, 'valued': 8, **fields}
+
+
+class HistoryTest(ServerTestCase):
+
+    def send(self, answers=(), games=(), headers=None):
+        return self.request('/v1/history', method='POST', headers=headers,
+                            body={'answers': list(answers), 'games': list(games)})[0]
+
+    def fetch(self, after=0, limit=None):
+        query = f'?after={after}' + (f'&limit={limit}' if limit else '')
+        status, body = self.request('/v1/history' + query)
+        self.assertEqual(status, 200)
+        return body
+
+    def test_info_says_history(self):
+        self.assertTrue(self.request('/v1/info')[1]['history'])
+
+    def test_upload_and_fetch(self):
+        self.assertEqual(self.send([answer(1), answer(2, right=False)], [game()]), 204)
+        body = self.fetch()
+        self.assertEqual(body['history'], self.history.history_id)
+        self.assertEqual([a['id'] for a in body['answers']], [f'{1:032x}', f'{2:032x}'])
+        self.assertEqual(body['answers'][0], {**answer(1), 'answered_at': '2026-10-13T18:01:00.000Z'})
+        self.assertIs(body['answers'][1]['right'], False)
+        self.assertEqual(body['games'], [game()])
+        self.assertEqual(body['next'], 3)
+        self.assertFalse(body['more'])
+        self.assertEqual(self.fetch(after=3), {'history': self.history.history_id, 'answers': [],
+                                               'games': [], 'next': 3, 'more': False})
+
+    def test_times_are_kept_in_one_form(self):
+        self.send([answer(1, answered_at='2026-10-13T18:35:10.123456Z'),
+                   answer(2, answered_at='2026-10-13T18:35:10.5Z')])
+        self.assertEqual([a['answered_at'] for a in self.fetch()['answers']],
+                         ['2026-10-13T18:35:10.123Z', '2026-10-13T18:35:10.500Z'])
+
+    def test_a_change_of_mind_replaces_the_answer(self):
+        self.send([answer(1)])
+        self.send([answer(1, right=False)])
+        body = self.fetch()
+        self.assertEqual(len(body['answers']), 1)
+        self.assertIs(body['answers'][0]['right'], False)
+        self.assertEqual(body['next'], 2)
+        self.assertEqual([a['right'] for a in self.fetch(after=1)['answers']], [False])
+
+    def test_sending_again_changes_nothing(self):
+        self.send([answer(1)], [game()])
+        self.send([answer(1)], [game()])
+        self.assertEqual(self.fetch()['next'], 2)
+
+    def test_an_older_game_row_does_not_replace_a_newer_one(self):
+        self.send(games=[game(answered=11, right=8, updated_at='2026-10-13T18:40:00Z')])
+        self.send(games=[game()])
+        self.assertEqual(self.fetch()['games'][0]['answered'], 11)
+        self.send(games=[game(answered=12, right=9, updated_at='2026-10-13T18:41:00Z')])
+        self.assertEqual(self.fetch()['games'][0]['answered'], 12)
+
+    def test_pages(self):
+        self.send([answer(n) for n in range(1, 6)], [game()])
+        first = self.fetch(limit=4)
+        self.assertEqual((len(first['answers']), first['next'], first['more']), (4, 4, True))
+        second = self.fetch(after=first['next'], limit=4)
+        self.assertEqual((len(second['answers']), len(second['games'])), (1, 1))
+        self.assertEqual((second['next'], second['more']), (6, False))
+
+    def test_history_survives_a_restart(self):
+        self.send([answer(1)])
+        history_id = self.history.history_id
+        self.stop()
+        self.history = serve_clues.HistoryStore(self.dir / 'data' / 'history.db')
+        self.start()
+        self.assertEqual(self.history.history_id, history_id)
+        self.assertEqual(len(self.fetch()['answers']), 1)
+
+    def test_a_new_database_has_a_new_history_id(self):
+        other = serve_clues.HistoryStore(self.dir / 'other.db')
+        self.assertNotEqual(other.history_id, self.history.history_id)
+
+    def test_bad_uploads_are_400_and_store_nothing(self):
+        bad = [
+            ({'answers': [answer(1, id='nope')]}, 'answers[0].id'),
+            ({'answers': [answer(1), answer(2, format='essay')]}, 'answers[1].format'),
+            ({'answers': [answer(1, round=4)]}, 'answers[0].round'),
+            ({'answers': [answer(1, row=0)]}, 'answers[0].row'),
+            ({'answers': [answer(1, right=1)]}, 'answers[0].right'),
+            ({'answers': [answer(1, answered_at='2026-10-13 18:00')]}, 'answers[0].answered_at'),
+            ({'answers': [answer(1, answered_at='2026-02-30T18:00:00Z')]}, 'answers[0].answered_at'),
+            ({'answers': [answer(1, utc_offset=10000)]}, 'answers[0].utc_offset'),
+            ({'answers': [answer(1, key='')]}, 'answers[0].key'),
+            ({'answers': [{k: v for k, v in answer(1).items() if k != 'game'}]}, 'answers[0].game'),
+            ({'games': [game(right=11)]}, 'games[0]'),
+            ({'games': [game(started='13/10/2026')]}, 'games[0].started'),
+            ({'answers': 'x'}, 'lists'),
+            ([], 'object'),
+        ]
+        for body, problem in bad:
+            with self.subTest(problem=problem):
+                status, error = self.request('/v1/history', method='POST', body=body)
+                self.assertEqual(status, 400)
+                self.assertIn(problem, error['error'])
+        status, _ = self.request('/v1/history', method='POST', body=b'{not json')
+        self.assertEqual(status, 400)
+        self.assertEqual(self.fetch()['next'], 0)
+
+    def test_too_much_at_once_is_413(self):
+        self.assertEqual(self.send([answer(n) for n in range(501)]), 413)
+        # Refused from the headers alone: the body is never read.
+        conn = http.client.HTTPConnection('127.0.0.1', self.server.server_address[1])
+        try:
+            conn.putrequest('POST', '/v1/history')
+            conn.putheader('Content-Length', str(serve_clues.MAX_HISTORY_BODY + 1))
+            conn.endheaders()
+            self.assertEqual(conn.getresponse().status, 413)
+        finally:
+            conn.close()
+
+    def test_bad_queries_are_400(self):
+        for query in ('?after=x', '?after=-1', '?limit=0', '?limit=1001'):
+            with self.subTest(query=query):
+                self.assertEqual(self.request('/v1/history' + query)[0], 400)
+
+    def test_other_methods(self):
+        self.assertEqual(self.raw('/v1/history', method='HEAD')[0], 405)
+
+    def test_token_guards_history(self):
+        self.stop()
+        self.start(token='s3cret')
+        self.assertEqual(self.send([answer(1)]), 401)
+        self.assertEqual(self.request('/v1/history')[0], 401)
+        auth = {'Authorization': 'Bearer s3cret'}
+        self.assertEqual(self.send([answer(1)], headers=auth), 204)
+        self.assertEqual(self.request('/v1/history', headers=auth)[0], 200)
+
+    def test_main_says_when_history_cannot_be_kept(self):
+        history = self.dir / 'clues.db' / 'history.db'
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = serve_clues.main(['--db', str(self.db), '--reports', str(self.reports),
+                                     '--history', str(history)])
+        self.assertEqual(code, 1)
+        self.assertIn(f'cannot keep the score history in {history.resolve()}',
+                      stderr.getvalue())
+
+    def test_servers_without_history_say_nothing(self):
+        self.stop()
+        self.history = None
+        self.start()
+        self.assertNotIn('history', self.request('/v1/info')[1])
+        self.assertEqual(self.request('/v1/history')[0], 404)
+
+
 class ServerSettingsTest(unittest.TestCase):
 
     def parse(self, argv, **environ):
@@ -283,7 +450,8 @@ class ServerProcessTest(unittest.TestCase):
             env = {k: v for k, v in os.environ.items() if not k.startswith('QUIZ_')}
             server = subprocess.Popen(
                 [sys.executable, str(Path(serve_clues.__file__)), '--db', str(tmp / 'clues.db'),
-                 '--reports', str(tmp / 'reports.db'), '--port', '0', '--quiet'],
+                 '--reports', str(tmp / 'reports.db'), '--history', str(tmp / 'history.db'),
+                 '--port', '0', '--quiet'],
                 stdout=subprocess.PIPE, text=True, env=env)
             try:
                 self.assertIn('Serving 6 clues', server.stdout.readline())

@@ -42,7 +42,8 @@ void main() {
         'build_trivia_db.build(items, Path(sys.argv[1]), "2026-10-10", "https://opentdb.com")',
       db]);
     server = await Process.start('python3', ['tool/serve_clues.py', '--db', db,
-      '--reports', p.join(dir.path, 'reports.db'), '--port', '0', '--quiet']);
+      '--reports', p.join(dir.path, 'reports.db'), '--history', p.join(dir.path, 'history.db'),
+      '--port', '0', '--quiet']);
     server.stderr.transform(utf8.decoder).listen(stderr.write);
     final firstLine = await server.stdout.transform(utf8.decoder)
         .transform(const LineSplitter()).first.timeout(const Duration(seconds: 20));
