@@ -12,6 +12,29 @@ already installed on the NAS.
 That keeps within the clue dataset's terms (personal use, never the public
 internet), so the container serves the Jeopardy! clues as well as trivia.
 
+**Status:** done, in the three commits of §8. Where the code differs from
+this plan:
+
+- The build stage starts from `buildpack-deps:bookworm`, not
+  `debian:bookworm-slim` plus `apt-get` (§2). It's an official image that
+  already has git, curl, unzip and xz, so the build doesn't depend on a
+  Debian mirror; it only runs on the building machine.
+- The reports error (§4) names the resolved path, `/data/reports.db`, not
+  `/app/data/reports.db`, so it matches the folder a person looks at.
+
+Checked in this environment (linux/amd64, Docker 29.8, Compose 5.6) with the
+image built from the Dockerfile as committed: `build_clue_db.py` in the
+container downloaded the v42 dataset and wrote the 543,912-clue database
+into the volume in 15 seconds; `docker compose up -d` reported healthy; the
+API refused requests without the token and answered with it, while the page
+loaded without it; `docker compose stop` took 0.2 seconds; a hidden clue was
+still hidden after `down` and `up`; a volume the container can't write to
+stopped it with the reports error; `QUIZ_DB=/data/trivia.db` served trivia;
+and in Chromium the page asked for the token, showed a clue, flipped it and
+scored Got it. Not checked: `build_trivia_db.py`'s 12-minute download in
+the container (its database was built from the saved OpenTDB responses
+instead), an ARM build, and `tailscale serve`.
+
 ## 0. What a person can do
 
 - **Start it with one command** on the NAS, `docker compose up -d`, and play
@@ -46,8 +69,8 @@ So the work is packaging, plus three small server changes (§4).
 Two stages:
 
 1. **`web`**, the Flutter build. There is no official Flutter image, and the
-   community `ghcr.io/cirruslabs/flutter` image has no 3.47.6 tag, so the
-   stage clones Flutter at that tag onto `debian:bookworm-slim`, as the
+   community `ghcr.io/cirruslabs/flutter` image stops at 3.44.0, so the
+   stage clones Flutter at 3.47.6 onto `buildpack-deps:bookworm`, as the
    session hook does (`FLUTTER_VERSION`, kept in step with
    `.claude/hooks/session-start.sh`). It copies `pubspec.yaml` and
    `pubspec.lock` first and runs `flutter pub get`, so changes to `lib/`

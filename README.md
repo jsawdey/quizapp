@@ -313,3 +313,46 @@ real clues with hot reload:
 python3 tool/serve_clues.py
 flutter run -d chrome
 ```
+
+## Running on a NAS with Docker
+
+The server and the web UI also come as one Docker image, for a NAS or other
+always-on computer on your own network. The NAS needs only Docker (with
+Compose); the image builds the web UI itself, and the same image builds the
+databases. The design is in [docs/docker-plan.md](docs/docker-plan.md).
+
+From a clone of this repository on the NAS:
+
+```
+cp .env.example .env
+docker compose build
+docker compose run --rm quizapp python3 tool/build_clue_db.py
+docker compose up -d
+```
+
+Then open `http://<nas>:8080/`. It starts again after a reboot.
+
+- **The questions live in `./data`**, next to `compose.yaml`: `clues.db`,
+  `trivia.db` (`docker compose run --rm quizapp python3
+  tool/build_trivia_db.py`), the downloads they're built from, and
+  `reports.db`, so hidden questions survive upgrades. The image itself holds
+  no questions.
+- **`.env`** picks the database (`QUIZ_DB=/data/trivia.db` for trivia) and the
+  token (`QUIZ_TOKEN`; empty means none). Run `docker compose up -d` after
+  changing it. `serve_clues.py` reads the same two variables outside Docker.
+- **Folder ownership.** The container runs as uid 1000 and has to write to
+  `./data`. If it can't, it stops with "cannot keep reported questions in
+  /data/reports.db"; set `user:` in `compose.yaml` to the folder owner's ids
+  (`id -u`, `id -g`; often `1026:100` on Synology), or `chown 1000:1000 data`.
+- **From elsewhere, with Tailscale** on the NAS: run `tailscale serve --bg
+  8080` there once, and play at `https://<nas>.<tailnet>.ts.net/`. Release
+  phone builds can use that address as `QUESTION_API_URL` (see
+  [Release builds need HTTPS](#release-builds-need-https)).
+- **Upgrading:** `git pull`, then `docker compose up -d --build`.
+- **Building elsewhere.** The first build downloads Flutter (about 1.5 GB) and
+  takes several minutes. On a slow NAS, build on another computer (for an
+  ARM NAS, `docker buildx build --platform linux/arm64 -t quizapp .`), then
+  `docker save quizapp | ssh <nas> docker load`, and run `docker compose up
+  -d` on the NAS without `--build`.
+- **Personal use only**, as above: don't forward the port from your router,
+  and don't publish the image. Tailscale reaches it without either.
