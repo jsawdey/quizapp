@@ -5,11 +5,13 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:quizapp/config/source_choice.dart';
+import 'package:quizapp/controller/history_recorder.dart';
 import 'package:quizapp/controller/question_repository.dart';
 import 'package:quizapp/controller/score_keeper.dart';
 import 'package:quizapp/data/fallback_question_source.dart';
 import 'package:quizapp/data/filter_store.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
+import 'package:quizapp/data/history_store.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
 import 'package:quizapp/data/score_store.dart';
@@ -1102,6 +1104,34 @@ void main() {
       expect(find.text('Score'), findsNothing);
       expect(scoreLine(), findsNothing);
       expect(scores.score, Score.empty);
+    });
+
+    testWidgets('without a score history there is no History button',
+        (WidgetTester tester) async {
+      await pumpScored(tester);
+      await tester.tap(choice('Paris'));
+      await tester.pump();
+      await tester.tap(scoreLine());
+      await tester.pumpAndSettle();
+      expect(find.text('History'), findsNothing);
+    });
+
+    testWidgets('History opens the score history', (WidgetTester tester) async {
+      keeper = ScoreKeeper(store: scores, recorder: HistoryRecorder(store: InMemoryHistoryStore()),
+          now: () => DateTime(2026, 10, 11, 20));
+      await pumpScored(tester);
+      await tester.tap(choice('Paris'));
+      await tester.pumpAndSettle();
+      await tester.tap(scoreLine());
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('History'));
+      await tester.pumpAndSettle();
+      expect(find.text('Score'), findsNothing);
+      expect(find.text('All time'), findsOneWidget);
+      expect(find.text('1/1 right (100%)'), findsWidgets);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('CLUE 1'), findsOneWidget);
     });
 
     testWidgets('a saved game shows from the start', (WidgetTester tester) async {

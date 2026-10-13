@@ -1,16 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:quizapp/controller/score_keeper.dart';
+import 'package:quizapp/ui/history_page.dart';
 import 'package:quizapp/ui/score_line_widget.dart';
 
-/// Shows the game's score, with New game to clear it.
+/// Shows the game's score, with New game to clear it, and History to see the
+/// score history when there is one.
 Future<void> showScoreDialog(BuildContext context, ScoreKeeper keeper) {
   final score = keeper.score;
+  final recorder = keeper.recorder;
   final started = score.started;
   final percent = score.answered == 0 ? 0 : (score.right * 100 / score.answered).round();
   return showDialog<void>(
     context: context,
-    builder: (context) => AlertDialog(
+    builder: (dialogContext) => AlertDialog(
       title: const Text('Score'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -27,14 +30,24 @@ Future<void> showScoreDialog(BuildContext context, ScoreKeeper keeper) {
         ],
       ),
       actions: <Widget>[
+        if (recorder != null && recorder.offersHistory)
+          TextButton(
+            onPressed: () {
+              Navigator.pop(dialogContext);
+              // The page's context: the dialog's is gone once it's popped.
+              Navigator.push(context, MaterialPageRoute<void>(
+                  builder: (context) => HistoryPage(recorder: recorder)));
+            },
+            child: const Text('History'),
+          ),
         TextButton(
           onPressed: () {
             keeper.newGame();
-            Navigator.pop(context);
+            Navigator.pop(dialogContext);
           },
           child: const Text('New game'),
         ),
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Close')),
+        TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Close')),
       ],
     ),
   );
