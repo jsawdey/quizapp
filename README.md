@@ -189,6 +189,27 @@ Tap the score for the details, and **New game** to start again. The game is
 kept between launches (in the browser's storage, for the web UI). The
 design is in [docs/scoring-plan.md](docs/scoring-plan.md).
 
+### Score history
+
+Every answer is also kept in a history, and **History** in the score dialog
+shows all-time statistics: right out of answered for all time and the last
+30 and 7 days, Jeopardy! clues by round and board row, trivia by difficulty,
+your strongest and weakest categories (once one has 10 answers), your best
+streak and recent games.
+
+- **On its own**, a phone or desktop build keeps its history on the device.
+- **With a server**, every device adds up. A build whose `QUESTION_API_URL`
+  is a `quizapp` server (such as `serve_clues.py` on a NAS) sends its answers
+  there and fetches the ones your other devices sent, so they all show the
+  same history, whichever source the ⇄ button has picked. A device that
+  can't reach the server keeps its answers and sends them later, and a
+  reinstalled one gets the history back. The web UI reads the history from
+  the server that served it.
+
+The history is one player's: everyone with the server's token adds to it.
+Days are counted where each answer was played, whatever time zone the server
+runs in. The design is in [docs/history-plan.md](docs/history-plan.md).
+
 ## Filtering clues
 
 The filter button in the app bar (or F on a keyboard) picks which rounds to
@@ -224,7 +245,8 @@ python3 tool/serve_clues.py --host 0.0.0.0 --token SOME-SECRET
 
 By default it listens on `127.0.0.1:8080`; `--host 0.0.0.0` makes it
 reachable from your local network. Reported questions are kept in
-`data/reports.db`. Run it with `--help` for the other options. Its tests run
+`data/reports.db`, and the [score history](#score-history) in
+`data/history.db`. Run it with `--help` for the other options. Its tests run
 with the other tool tests; `test/serve_clues_contract_test.dart` checks the
 app against it.
 
@@ -334,9 +356,10 @@ Then open `http://<nas>:8080/`. It starts again after a reboot.
 
 - **The questions live in `./data`**, next to `compose.yaml`: `clues.db`,
   `trivia.db` (`docker compose run --rm quizapp python3
-  tool/build_trivia_db.py`), the downloads they're built from, and
-  `reports.db`, so hidden questions survive upgrades. The image itself holds
-  no questions.
+  tool/build_trivia_db.py`), the downloads they're built from, `reports.db`
+  and `history.db`, so hidden questions and the [score
+  history](#score-history) survive upgrades. The image itself holds no
+  questions.
 - **`.env`** picks the database (`QUIZ_DB=/data/trivia.db` for trivia) and the
   token (`QUIZ_TOKEN`; empty means none). Run `docker compose up -d` after
   changing it. `serve_clues.py` reads the same two variables outside Docker.

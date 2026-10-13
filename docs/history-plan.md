@@ -16,6 +16,36 @@ the statistics itself, from whichever answers it has, so a phone with no
 server gets history too, and one that has a server shows it even while the
 server is out of reach.
 
+**Status:** done, in the six commits of §7. Where the code differs from
+this plan:
+
+- The game's id is saved under its own shared_preferences key,
+  `score_game`, beside the score's JSON rather than inside it, so the saved
+  score's form and its checks stay as they were.
+- A game's start day is `started` (a date, as in the saved score), not
+  `started_at`.
+- Each `GET /v1/history` page carries the server's **history id**, made
+  with `history.db`. A device that sees it change (the database was deleted
+  or replaced) sends the server everything it has and fetches again from
+  the start, instead of waiting forever past its old cursor.
+- A batch the server refuses as malformed is sent again one row at a time,
+  and only the rows it still refuses are dropped (and logged), so one bad
+  row can't hold up the rest.
+- After a failed sync, a sync asked for meanwhile doesn't run at once; the
+  retry timer takes over, so one outage counts as one failure in the
+  backoff.
+- The History screen is at most 720 px wide, so rows stay readable on a
+  desktop.
+
+Checked in this environment, beyond the tests: the Docker image rebuilt
+with this code; in Chromium the page sent three answers and the game's
+totals to the server, and a second browser session (empty storage, like
+another device) showed the history of both; a Linux desktop build with no
+server kept its answers in its own `history.db` and showed them; and one
+pointed at the server fetched the 5 answers the browser had sent as it
+started, sent its own, replaced it on a change of mind (6 answers on the
+server, not 7), and showed the history of all three.
+
 ## 0. What a person can do
 
 - **Play as now.** Each answer still counts in the current game, and it is
