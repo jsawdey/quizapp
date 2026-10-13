@@ -1,5 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:quizapp/controller/history_recorder.dart';
 import 'package:quizapp/controller/score_keeper.dart';
+import 'package:quizapp/data/history_store.dart';
 import 'package:quizapp/data/score_store.dart';
 import 'package:quizapp/model/question.dart';
 import 'package:quizapp/model/score.dart';
@@ -156,4 +158,77 @@ void main() {
     await keeper.newGame();
     expect(heard, 3);
   });
+
+  group('with a history', () {
+    late InMemoryHistoryStore history;
+    late HistoryRecorder recorder;
+
+    setUp(() {
+      history = InMemoryHistoryStore();
+      recorder = HistoryRecorder(store: history);
+      keeper = ScoreKeeper(store: store, recorder: recorder, now: () => today);
+    });
+
+    test('a result goes into the history with its game', () async {
+      await answer(clue2, true);
+      final all = await history.all();
+      expect(all.answers, hasLength(1));
+      final recorded = all.answers.single;
+      expect((recorded.key, recorded.value, recorded.right), ('2', 400, true));
+      expect(recorded.game, keeper.gameId);
+      expect(recorded.answeredAt, today.toUtc());
+      final game = all.games.single;
+      expect((game.id, game.answered, game.right, game.dollars), (keeper.gameId, 1, 1, 400));
+    });
+
+    test('a change of mind replaces the answer; the next question is a new one', () async {
+      await answer(clue1, true);
+      await keeper.record(right: false);
+      var all = await history.all();
+      expect(all.answers.single.right, isFalse);
+      expect((all.games.single.answered, all.games.single.right), (1, 0));
+      await answer(clue2, true);
+      all = await history.all();
+      expect(all.answers, hasLength(2));
+      expect(all.answers.map((a) => a.id).toSet(), hasLength(2));
+    });
+
+    test('a new game has a new id, and is saved', () async {
+      await answer(clue1, true);
+      final first = keeper.gameId;
+      await keeper.newGame();
+      expect(keeper.gameId, isNot(first));
+      expect(store.gameId, keeper.gameId);
+      await answer(clue2, true);
+      final games = (await history.all()).games;
+      expect(games.map((g) => g.id), [first, keeper.gameId]);
+    });
+
+    test('load keeps the saved game id, or makes and saves one', () async {
+      final saved = InMemoryScoreStore(Score.empty, 'a' * 32);
+      expect((await ScoreKeeper.load(saved)).gameId, 'a' * 32);
+      final old = InMemoryScoreStore(Score(answered: 3, right: 2, streak: 1, best: 2,
+          dollars: 400, valued: 3, started: today));
+      final loaded = await ScoreKeeper.load(old, recorder: recorder);
+      expect(old.gameId, loaded.gameId);
+      expect(loaded.gameId, matches(RegExp(r'^[0-9a-f]{32}$')));
+      // The game in progress joins the history with its totals so far.
+      loaded.show(clue1);
+      await loaded.record(right: true);
+      expect((await history.all()).games.single.answered, 4);
+    });
+
+    test('a history that fails never stops the game', () async {
+      final broken = HistoryRecorder(store: _FailingHistoryStore());
+      keeper = ScoreKeeper(store: store, recorder: broken, now: () => today);
+      await answer(clue1, true);
+      expect(keeper.score.right, 1);
+      expect(store.score.right, 1);
+    });
+  });
+}
+
+class _FailingHistoryStore extends InMemoryHistoryStore {
+  @override
+  Future<void> open() async => throw StateError('no disk');
 }

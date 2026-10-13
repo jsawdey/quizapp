@@ -10,24 +10,37 @@ abstract class ScoreStore {
   /// The saved game, or [Score.empty] if there is none.
   Future<Score> read();
   Future<void> write(Score score);
+
+  /// The game's id in the score history; null if none was saved.
+  Future<String?> readGameId();
+  Future<void> writeGameId(String id);
 }
 
 /// Keeps the game in memory only. Used by tests.
 class InMemoryScoreStore implements ScoreStore {
   Score score;
-  InMemoryScoreStore([this.score = Score.empty]);
+  String? gameId;
+  InMemoryScoreStore([this.score = Score.empty, this.gameId]);
 
   @override
   Future<Score> read() async => score;
 
   @override
   Future<void> write(Score score) async => this.score = score;
+
+  @override
+  Future<String?> readGameId() async => gameId;
+
+  @override
+  Future<void> writeGameId(String id) async => gameId = id;
 }
 
 /// Keeps the game with shared_preferences, as JSON such as
-/// `{"answered":10,"right":7,"streak":3,"best":5,"dollars":4200,"valued":8,"started":"2026-10-11"}`.
+/// `{"answered":10,"right":7,"streak":3,"best":5,"dollars":4200,"valued":8,"started":"2026-10-11"}`,
+/// and its id in the history beside it.
 class SharedPrefsScoreStore implements ScoreStore {
   static const prefsKey = 'score';
+  static const gameIdKey = 'score_game';
 
   final Future<SharedPreferences> Function() _prefs;
 
@@ -49,6 +62,12 @@ class SharedPrefsScoreStore implements ScoreStore {
       await prefs.setString(prefsKey, encodeScore(score));
     }
   }
+
+  @override
+  Future<String?> readGameId() async => (await _prefs()).getString(gameIdKey);
+
+  @override
+  Future<void> writeGameId(String id) async => (await _prefs()).setString(gameIdKey, id);
 }
 
 @visibleForTesting

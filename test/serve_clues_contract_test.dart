@@ -6,9 +6,14 @@ import 'package:path/path.dart' as p;
 import 'package:quizapp/controller/question_repository.dart';
 import 'package:quizapp/data/api_dialect.dart';
 import 'package:quizapp/data/hidden_question_store.dart';
+import 'package:quizapp/data/history_client.dart';
+import 'package:quizapp/data/history_store.dart';
 import 'package:quizapp/data/http_question_source.dart';
 import 'package:quizapp/data/local_question_source.dart';
 import 'package:quizapp/data/question_source.dart';
+import 'package:quizapp/model/history.dart';
+import 'package:quizapp/model/question.dart';
+import 'package:quizapp/model/score.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// Runs the app's HTTP source against the real tool/serve_clues.py, serving a
@@ -130,6 +135,61 @@ void main() {
     await repository.close();
     await fresh.close();
   }, skip: skip);
+
+  group('score history', () {
+    HistoryClient history({String? withToken = token}) =>
+        HistoryClient(baseUrl: baseUrl, credentials: ApiCredentials(withToken));
+    final game = newHistoryId();
+    HistoryAnswer answer(String key, {required bool right}) => HistoryAnswer.of(
+        Question(sourceId: 'jwolle1', key: key, question: 'Clue', answer: 'Response',
+            category: 'BIOGRAPHIES', value: 400, round: 1, airDate: DateTime(2010, 1, 1)),
+        id: newHistoryId(), game: game, right: right, at: DateTime(2026, 10, 13, 14, 35));
+
+    test('the server says it keeps one', () async {
+      expect(await history().keepsHistory(), isTrue);
+    }, skip: skip);
+
+    test('what the app sends comes back as sent, a change of mind replacing it', () async {
+      final client = history();
+      final start = (await client.fetch(after: 0)).next;
+      final first = answer('1', right: true);
+      final totals = HistoryGame.of(game, Score(answered: 1, right: 1, streak: 1, best: 1,
+          dollars: 400, valued: 1, started: DateTime(2026, 10, 13)),
+          now: DateTime(2026, 10, 13, 14, 35));
+      await client.send(HistoryBatch(answers: [first, answer('2', right: false)],
+          games: [totals]));
+      var page = await client.fetch(after: start);
+      expect(page.answers.first, first);
+      expect(page.games, [totals]);
+      expect(page.more, isFalse);
+
+      final changed = HistoryAnswer.fromJson({...first.toJson(), 'right': false})!;
+      await client.send(HistoryBatch(answers: [changed]));
+      page = await client.fetch(after: page.next);
+      expect(page.answers, [changed]);
+    }, skip: skip);
+
+    test('pages', () async {
+      final client = history();
+      final start = (await client.fetch(after: 0)).next;
+      await client.send(HistoryBatch(answers: [
+        for (var i = 0; i < 3; i++) answer('p$i', right: true),
+      ]));
+      final first = await client.fetch(after: start, limit: 2);
+      expect((first.answers.length, first.more), (2, true));
+      final second = await client.fetch(after: first.next, limit: 2);
+      expect((second.answers.length, second.more), (1, false));
+      expect(second.historyId, first.historyId);
+    }, skip: skip);
+
+    test('refuses what it cannot store, and needs the token', () async {
+      final bad = HistoryAnswer.fromJson({...answer('x', right: true).toJson(), 'id': 'short'})!;
+      await expectLater(history().send(HistoryBatch(answers: [bad])),
+          throwsA(isA<HistoryRejected>()));
+      await expectLater(history(withToken: null).fetch(after: 0),
+          throwsA(isA<Unauthorized>()));
+    }, skip: skip);
+  });
 }
 
 Future<void> _run(List<String> args) async {

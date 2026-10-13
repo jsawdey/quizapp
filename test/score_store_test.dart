@@ -39,6 +39,14 @@ void main() {
       expect(await store.read(), Score.empty);
     });
 
+    test('keeps the game id beside the game', () async {
+      final store = SharedPrefsScoreStore();
+      expect(await store.readGameId(), isNull);
+      await store.writeGameId('a' * 32);
+      await store.write(Score.empty);
+      expect(await SharedPrefsScoreStore().readGameId(), 'a' * 32);
+    });
+
     test('a corrupt saved game reads as empty', () async {
       SharedPreferences.setMockInitialValues(
           {SharedPrefsScoreStore.prefsKey: 'not json'});
