@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve the clue or trivia database over HTTP, using the app's `quizapp` API (v1).
+"""Serve the clue and trivia databases over HTTP, using the app's `quizapp` API (v1).
 
 The clue dataset is property of Jeopardy Productions, Inc. and its author asks
 that it not be used for public-facing apps or products. Served from the clue
@@ -13,6 +13,7 @@ Usage (from the repository root, after python3 tool/build_clue_db.py):
     python3 tool/serve_clues.py --host 0.0.0.0 --token SECRET  # your LAN
     python3 tool/serve_clues.py --web build/web              # plus the web UI
     python3 tool/serve_clues.py --db assets/db/trivia.db     # general trivia
+    python3 tool/serve_clues.py --db assets/db/clues.db --db assets/db/trivia.db  # both
 
 Then build the app with QUESTION_SOURCE=api (or api_with_local_fallback),
 QUESTION_API_DIALECT=quizapp and QUESTION_API_URL=http://<this computer>:8080.
@@ -21,17 +22,23 @@ flutter build web --no-web-resources-cdn, browsers can play at
 http://<this computer>:8080/.
 
 API (docs/question-backend-plan.md section 7):
-    GET  /v1/info      what is served: kind, filters, categories, credit
+    GET  /v1/info      what is served: kind, filters, categories, credit, and
+                       every database on this server ("datasets")
     GET  /v1/random?count=10[&round=1,2][&from=YYYY-MM-DD][&to=YYYY-MM-DD][&row=4,5]
     GET  /v1/random?count=10[&category=Art&category=History][&difficulty=easy,hard]
          (trivia; an empty "questions" list when nothing matches the filters)
     POST /v1/questions/{key}/report
 
+With several --db, the first is served under /v1/ and each one under its file
+name as well: /clues/v1/random, /trivia/v1/random. The app lists them all and
+switches between them (docs/combined-server-plan.md).
+
 With --token, the API needs the bearer token but the web UI's files don't:
 they hold no clues, and the page asks for the token.
 
-The environment variables QUIZ_DB and QUIZ_TOKEN, if set, stand in for --db
-and --token (the Docker image uses them; see docs/docker-plan.md).
+The environment variables QUIZ_DB (comma-separated paths) and QUIZ_TOKEN, if
+set, stand in for --db and --token (the Docker image uses them; see
+docs/docker-plan.md).
 
 Reported questions are kept in a separate database (--reports) and never
 served again, so hiding one on one device hides it on all of them.
@@ -48,6 +55,7 @@ import json
 import mimetypes
 import os
 import random
+import re
 import signal
 import sqlite3
 import sys
@@ -67,6 +75,9 @@ MAX_COUNT = 50
 DEFAULT_COUNT = 10
 # Random picks to try per requested clue before returning fewer than asked.
 ATTEMPTS_PER_CLUE = 5
+# What a database's name, its file name without .db, may be when there are
+# several: it becomes a path segment (docs/combined-server-plan.md section 2).
+DATASET_NAME = re.compile(r'[a-z0-9][a-z0-9_-]*')
 
 # The day clue values doubled. A clue's board row (1 top to 5 bottom) is its
 # value over its round's top-row value, which doubled then; as
@@ -126,10 +137,39 @@ def read_meta(db_path):
 
 
 def open_store(db_path, reports_path, rng=None):
-    """A ClueStore or TriviaStore, as the database's dataset_kind says."""
+    """A ClueStore or TriviaStore, as the database's dataset_kind says.
+
+    Its name is the file's name without the extension.
+    """
     if read_meta(db_path).get('dataset_kind') == 'trivia':
-        return TriviaStore(db_path, reports_path, rng)
-    return ClueStore(db_path, reports_path, rng)
+        store = TriviaStore(db_path, reports_path, rng)
+    else:
+        store = ClueStore(db_path, reports_path, rng)
+    store.name = Path(db_path).stem
+    return store
+
+
+def open_stores(db_paths, reports_path, rng=None):
+    """The stores for db_paths by name, in order; the first is the default.
+
+    All of them keep their reports in reports_path. With more than one, each
+    name must be a path segment of its own: lower case and unique, and not
+    v1. Raises ValueError if not.
+    """
+    if len(db_paths) > 1:
+        names = [Path(path).stem for path in db_paths]
+        for path, name in zip(db_paths, names):
+            if not DATASET_NAME.fullmatch(name) or name == 'v1':
+                raise ValueError(f'{path}: to serve several databases, each file name '
+                                 'must be lower-case letters, digits, - and _ before .db '
+                                 '(and not v1.db). Rename it.')
+            if names.count(name) > 1:
+                raise ValueError(f'more than one database is called {name}.db; rename one.')
+    stores = {}
+    for path in db_paths:
+        store = open_store(path, reports_path, rng)
+        stores[store.name] = store
+    return stores
 
 
 class ClueStore:
@@ -479,7 +519,30 @@ def web_build_uses_cdn(web_root):
     return '"useLocalCanvasKit":true' not in bootstrap.replace(' ', '')
 
 
-def make_handler(store, token=None, quiet=False, web_root=None):
+def datasets(stores, prefix):
+    """The databases on this server, for /v1/info at the base /{prefix}/.
+
+    Each path is relative to that base, so it holds behind a proxy that adds
+    a prefix of its own. The default (first) database is always the root.
+    """
+    root = '../' if prefix is not None else ''
+    default = next(iter(stores))
+    listed = []
+    for name, store in stores.items():
+        if name == default:
+            path = root or './'
+        elif name == prefix:
+            path = './'
+        else:
+            path = f'{root}{name}/'
+        listed.append({'name': name, 'kind': store.kind, 'count': store.max_id, 'path': path})
+    return listed
+
+
+def make_handler(stores, token=None, quiet=False, web_root=None):
+    """stores: the stores by name, the default first."""
+    default = next(iter(stores.values()))
+
     class Handler(BaseHTTPRequestHandler):
         server_version = 'serve_clues/1'
 
@@ -495,7 +558,13 @@ def make_handler(store, token=None, quiet=False, web_root=None):
         def _handle(self, method):
             url = urlsplit(self.path)
             parts = [unquote(p) for p in url.path.split('/') if p]
-            if parts[:1] != ['v1']:
+            # /v1/... is the default database; /{name}/v1/... any of them.
+            if parts[:1] == ['v1']:
+                store, prefix = default, None
+            elif len(parts) >= 2 and parts[1] == 'v1' and parts[0] in stores:
+                store, prefix = stores[parts[0]], parts[0]
+                parts = parts[1:]
+            else:
                 if web_root is not None:
                     return self._serve_web(method, url.path)
                 return self._send_json(HTTPStatus.NOT_FOUND, {'error': 'not found'})
@@ -506,7 +575,8 @@ def make_handler(store, token=None, quiet=False, web_root=None):
                 if parts == ['v1', 'info']:
                     if method != 'GET':
                         return self._not_allowed('GET')
-                    return self._send_json(HTTPStatus.OK, store.info())
+                    return self._send_json(HTTPStatus.OK,
+                                           {**store.info(), 'datasets': datasets(stores, prefix)})
                 if parts == ['v1', 'random']:
                     if method != 'GET':
                         return self._not_allowed('GET')
@@ -588,19 +658,23 @@ def make_handler(store, token=None, quiet=False, web_root=None):
     return Handler
 
 
-def make_server(store, host='127.0.0.1', port=8080, token=None, quiet=False, web_root=None):
-    """web_root, if given, is a Flutter web build to serve outside /v1/."""
+def make_server(stores, host='127.0.0.1', port=8080, token=None, quiet=False, web_root=None):
+    """stores: from open_stores, or a single store. web_root, if given, is a
+    Flutter web build to serve outside the API."""
+    if not isinstance(stores, dict):
+        stores = {stores.name: stores}
     if web_root is not None:
         web_root = Path(web_root).resolve()
-    return ThreadingHTTPServer((host, port), make_handler(store, token, quiet, web_root))
+    return ThreadingHTTPServer((host, port), make_handler(stores, token, quiet, web_root))
 
 
 def parse_args(argv):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('--db', type=Path, default=os.environ.get('QUIZ_DB') or DEFAULT_DB,
-                        help='clue or trivia database to serve; QUIZ_DB if set '
-                             '(default: %(default)s)')
+    parser.add_argument('--db', type=Path, action='append',
+                        help='clue or trivia database to serve; give it more than once to '
+                             'serve several, the first by default. QUIZ_DB (comma-separated) '
+                             f'if set (default: {DEFAULT_DB})')
     parser.add_argument('--reports', type=Path, default=DEFAULT_REPORTS,
                         help='where reported clues are kept (default: %(default)s)')
     parser.add_argument('--host', default='127.0.0.1',
@@ -615,7 +689,11 @@ def parse_args(argv):
                         help='also serve the web UI from this Flutter web build '
                              '(build/web after flutter build web --no-web-resources-cdn)')
     parser.add_argument('--quiet', action='store_true', help="don't log each request")
-    return parser.parse_args(argv)
+    args = parser.parse_args(argv)
+    if args.db is None:
+        listed = [Path(p.strip()) for p in os.environ.get('QUIZ_DB', '').split(',') if p.strip()]
+        args.db = listed or [DEFAULT_DB]
+    return args
 
 
 def _stop(signum, frame):
@@ -624,30 +702,38 @@ def _stop(signum, frame):
 
 def main(argv=None):
     args = parse_args(argv)
-    if not args.db.exists():
-        print(f'error: {args.db} does not exist. Run python3 tool/build_clue_db.py '
-              '(or tool/build_trivia_db.py) first.', file=sys.stderr)
-        return 1
+    for db in args.db:
+        if not db.exists():
+            print(f'error: {db} does not exist. Run python3 tool/build_clue_db.py '
+                  '(or tool/build_trivia_db.py) first.', file=sys.stderr)
+            return 1
     if args.web is not None and not (args.web / 'index.html').is_file():
         print(f'error: {args.web} has no index.html. Run '
               'flutter build web --no-web-resources-cdn first.', file=sys.stderr)
         return 1
     try:
-        store = open_store(args.db, args.reports)
+        stores = open_stores(args.db, args.reports)
     except (ValueError, sqlite3.Error, ReportsUnavailable) as e:
         print(f'error: {e}', file=sys.stderr)
         return 1
-    server = make_server(store, args.host, args.port, args.token, args.quiet, args.web)
+    server = make_server(stores, args.host, args.port, args.token, args.quiet, args.web)
     host, port = server.server_address[:2]
-    noun = 'clues' if store.kind == 'clues' else 'trivia questions'
-    print(f'Serving {store.max_id} {noun} on http://{host}:{port}/v1/random', flush=True)
+    for i, (name, store) in enumerate(stores.items()):
+        noun = 'clues' if store.kind == 'clues' else 'trivia questions'
+        if i == 0:
+            also = f' (also /{name}/v1/random)' if len(stores) > 1 else ''
+            where = f'/v1/random{also}'
+        else:
+            where = f'/{name}/v1/random'
+        print(f'Serving {store.max_id} {noun} on http://{host}:{port}{where}', flush=True)
     if args.web is not None:
         print(f'Web UI on http://{host}:{port}/', flush=True)
         if web_build_uses_cdn(args.web):
             print(f'Warning: {args.web} loads CanvasKit and fonts from Google, so browsers '
                   'without internet access show a blank page. Rebuild it with '
                   'flutter build web --no-web-resources-cdn.', flush=True)
-    if args.host not in ('127.0.0.1', 'localhost', '::1') and store.license is None:
+    unlicensed = any(store.license is None for store in stores.values())
+    if args.host not in ('127.0.0.1', 'localhost', '::1') and unlicensed:
         print('Personal use only: keep this server off the internet (see the dataset terms '
               'in README.md).' + ('' if args.token else ' Consider --token.'), flush=True)
     # docker stop sends SIGTERM, which a container's first process ignores

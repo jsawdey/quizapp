@@ -8,6 +8,13 @@ page. The [Docker plan](docker-plan.md) left this out (§9) as "its own
 plan". This is that plan: **one server, several databases, switched in the
 app** with the ⇄ button like any other source.
 
+**Status:** commit 2 of §8 (the server) is done. Where the code differs
+from this plan:
+
+- The name rules of §2 apply only when there are several databases. One
+  database is served at `/v1/` as before, so a file called, say,
+  `clues (1).db` still works on its own.
+
 ## 0. What a person can do
 
 - **Serve both from one server**: `serve_clues.py --db
@@ -209,10 +216,10 @@ list rides on the `/v1/info` the source already makes.
 ## 8. Suggested commit order
 
 1. This plan.
-2. **`serve_clues.py`**: several `--db`, named paths, `datasets` in
+2. ~~**`serve_clues.py`**: several `--db`, named paths, `datasets` in
    `/v1/info`, the `QUIZ_DB` list, start-up lines, and the tool tests.
    Useful on its own: phone builds can already use
-   `http://nas:8080/trivia`.
+   `http://nas:8080/trivia`.~~ (done)
 3. **The app**: `ServerDataset`, `QuizApiDialect` and the
    `serverDatasets` getters, `SourceChooser.learn` and the saved list,
    `QuizPage` calling it, plus the Dart tests and the contract test.

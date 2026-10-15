@@ -250,23 +250,31 @@ class ServerSettingsTest(unittest.TestCase):
 
     def test_defaults(self):
         args = self.parse([])
-        self.assertEqual(args.db, serve_clues.DEFAULT_DB)
+        self.assertEqual(args.db, [serve_clues.DEFAULT_DB])
         self.assertIsNone(args.token)
 
     def test_environment_stands_in_for_flags(self):
         args = self.parse([], QUIZ_DB='/data/trivia.db', QUIZ_TOKEN='s3cret')
-        self.assertEqual(args.db, Path('/data/trivia.db'))
+        self.assertEqual(args.db, [Path('/data/trivia.db')])
         self.assertEqual(args.token, 's3cret')
+
+    def test_environment_lists_databases_with_commas(self):
+        args = self.parse([], QUIZ_DB=' /data/clues.db , /data/trivia.db,')
+        self.assertEqual(args.db, [Path('/data/clues.db'), Path('/data/trivia.db')])
 
     def test_flags_win(self):
         args = self.parse(['--db', 'other.db', '--token', 'flag'],
-                          QUIZ_DB='/data/trivia.db', QUIZ_TOKEN='s3cret')
-        self.assertEqual(args.db, Path('other.db'))
+                          QUIZ_DB='/data/clues.db,/data/trivia.db', QUIZ_TOKEN='s3cret')
+        self.assertEqual(args.db, [Path('other.db')])
         self.assertEqual(args.token, 'flag')
+
+    def test_db_can_be_given_more_than_once(self):
+        args = self.parse(['--db', 'clues.db', '--db', 'trivia.db'])
+        self.assertEqual(args.db, [Path('clues.db'), Path('trivia.db')])
 
     def test_empty_values_are_unset(self):
         args = self.parse([], QUIZ_DB='', QUIZ_TOKEN='')
-        self.assertEqual(args.db, serve_clues.DEFAULT_DB)
+        self.assertEqual(args.db, [serve_clues.DEFAULT_DB])
         self.assertIsNone(args.token)
 
 
@@ -375,6 +383,131 @@ class ServeTriviaTest(ServerTestCase):
         self.assertEqual(self.store.license, 'CC BY-SA 4.0')
 
 
+class SeveralDatabasesTest(ServerTestCase):
+    """Clues and trivia from one server (docs/combined-server-plan.md)."""
+
+    FIXTURES = ServeTriviaTest.FIXTURES
+
+    def make_db(self):
+        self.trivia = ServeTriviaTest.make_db(self)
+        return ServeCluesTest.make_db(self)
+
+    def start(self, token=None):
+        self.stores = serve_clues.open_stores([self.db, self.trivia], self.reports,
+                                              rng=random.Random(1))
+        self.server = serve_clues.make_server(self.stores, port=0, token=token, quiet=True,
+                                              web_root=self.web)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.base = 'http://127.0.0.1:%d' % self.server.server_address[1]
+
+    def test_the_first_is_the_default_and_each_has_its_name(self):
+        self.assertEqual(list(self.stores), ['clues', 'trivia'])
+        self.assertEqual(self.responses(), ALL_RESPONSES)
+        self.assertEqual(self.responses('/clues/v1/random?count=50'), ALL_RESPONSES)
+        status, body = self.request('/trivia/v1/random?count=50')
+        self.assertEqual(status, 200)
+        self.assertEqual(body['namespace'], 'opentdb')
+        self.assertEqual(len(body['questions']), 50)
+        self.assertEqual(self.request('/trivia/v1/info')[1]['kind'], 'trivia')
+        # Each database's own parameters.
+        self.assertEqual(self.request('/trivia/v1/random?difficulty=impossible')[0], 400)
+        self.assertEqual(self.request('/v1/random?round=4')[0], 400)
+
+    def test_info_lists_the_databases_relative_to_the_base(self):
+        _, info = self.request('/v1/info')
+        self.assertEqual(info['kind'], 'clues')
+        self.assertEqual(info['datasets'], [
+            {'name': 'clues', 'kind': 'clues', 'count': 6, 'path': './'},
+            {'name': 'trivia', 'kind': 'trivia', 'count': 61, 'path': 'trivia/'},
+        ])
+        _, info = self.request('/trivia/v1/info')
+        self.assertEqual([d['path'] for d in info['datasets']], ['../', './'])
+        # The default is always the root, never clues/.
+        _, info = self.request('/clues/v1/info')
+        self.assertEqual([d['path'] for d in info['datasets']], ['../', '../trivia/'])
+
+    def test_one_database_lists_itself(self):
+        clues = serve_clues.open_stores([self.db], self.reports)['clues']
+        handler = serve_clues.datasets({'clues': clues}, None)
+        self.assertEqual(handler, [{'name': 'clues', 'kind': 'clues', 'count': 6, 'path': './'}])
+
+    def test_reports_through_either_path_share_one_file(self):
+        _, body = self.request('/trivia/v1/random?count=1')
+        trivia_key = body['questions'][0]['key']
+        _, body = self.request('/v1/random?count=1')
+        clue_key = body['questions'][0]['key']
+        self.assertEqual(self.request(f'/trivia/v1/questions/{trivia_key}/report',
+                                      method='POST')[0], 204)
+        self.assertEqual(self.request(f'/v1/questions/{clue_key}/report', method='POST')[0], 204)
+        # A key is only found in its own database.
+        self.assertEqual(self.request(f'/v1/questions/{trivia_key}/report', method='POST')[0], 400)
+        self.assertEqual(self.request(f'/trivia/v1/questions/{clue_key}/report',
+                                      method='POST')[0], 404)
+        self.stop()
+        self.start()
+        self.assertNotIn(trivia_key, {q['key'] for q in
+                                      self.request('/trivia/v1/random?count=50')[1]['questions']})
+        self.assertNotIn(clue_key, {q['key'] for q in
+                                    self.request('/v1/random?count=50')[1]['questions']})
+        with contextlib.closing(sqlite3.connect(self.reports)) as conn:
+            tables = {row[0] for row in conn.execute("SELECT name FROM sqlite_master")}
+        self.assertTrue({'reported', 'reported_trivia'} <= tables)
+
+    def test_token_guards_every_database(self):
+        self.stop()
+        self.start(token='s3cret')
+        for path in ('/v1/info', '/trivia/v1/info', '/clues/v1/random'):
+            self.assertEqual(self.request(path)[0], 401, path)
+            self.assertEqual(self.request(path, headers={'Authorization': 'Bearer s3cret'})[0],
+                             200, path)
+
+    def test_other_paths_are_not_the_api(self):
+        self.assertEqual(self.request('/trivia/random')[0], 404)
+        self.assertEqual(self.request('/quiz/v1/info')[0], 404)
+        self.assertEqual(self.request('/trivia/v2/info')[0], 404)
+
+    def test_names_must_be_path_segments_when_there_are_several(self):
+        for name in ('My Trivia.db', 'v1.db', 'Trivia.db'):
+            path = self.dir / name
+            path.write_bytes(self.trivia.read_bytes())
+            with self.assertRaisesRegex(ValueError, 'Rename it'):
+                serve_clues.open_stores([self.db, path], self.reports)
+            # One database is only served at /v1/, so its name doesn't matter.
+            self.assertEqual(len(serve_clues.open_stores([path], self.reports)), 1)
+        other = self.dir / 'other'
+        other.mkdir()
+        (other / 'clues.db').write_bytes(self.db.read_bytes())
+        with self.assertRaisesRegex(ValueError, 'more than one database is called clues.db'):
+            serve_clues.open_stores([self.db, other / 'clues.db'], self.reports)
+
+    def test_main_names_every_database(self):
+        # main() handles SIGTERM; keep that out of the test run.
+        self.addCleanup(signal.signal, signal.SIGTERM, signal.getsignal(signal.SIGTERM))
+        stdout = io.StringIO()
+        with contextlib.redirect_stdout(stdout), \
+                unittest.mock.patch.object(serve_clues.ThreadingHTTPServer, 'serve_forever',
+                                           side_effect=KeyboardInterrupt):
+            code = serve_clues.main(['--db', str(self.db), '--db', str(self.trivia),
+                                     '--reports', str(self.reports), '--port', '0',
+                                     '--host', '0.0.0.0'])
+        self.assertEqual(code, 0)
+        lines = stdout.getvalue().splitlines()
+        self.assertRegex(lines[0], r'^Serving 6 clues on http://0\.0\.0\.0:\d+/v1/random '
+                                   r'\(also /clues/v1/random\)$')
+        self.assertRegex(lines[1], r'^Serving 61 trivia questions on '
+                                   r'http://0\.0\.0\.0:\d+/trivia/v1/random$')
+        # The clues have no open licence, so the notice shows.
+        self.assertIn('Personal use only', stdout.getvalue())
+
+    def test_main_needs_every_database(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = serve_clues.main(['--db', str(self.db), '--db', str(self.dir / 'missing.db')])
+        self.assertEqual(code, 1)
+        self.assertIn('missing.db does not exist', stderr.getvalue())
+
+
 class WebUiTest(ServerTestCase):
     """serve_clues.py --web: the Flutter web build next to the API."""
 
@@ -438,6 +571,13 @@ class WebUiTest(ServerTestCase):
         self.assertEqual(self.request('/v1/random', method='POST')[0], 405)
         # Outside /v1/ is the web build's, so this is a missing file.
         self.assertEqual(self.raw('/v2/random')[0], 404)
+
+    def test_a_database_name_only_claims_its_api(self):
+        status, headers, _ = self.raw('/clues/v1/info')
+        self.assertEqual((status, headers['Content-Type']),
+                         (200, 'application/json; charset=utf-8'))
+        status, headers, _ = self.raw('/clues/index.html')
+        self.assertEqual((status, headers['Content-Type']), (404, 'text/plain; charset=utf-8'))
 
     def test_token_guards_only_the_api(self):
         self.stop()
