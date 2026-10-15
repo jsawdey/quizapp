@@ -217,6 +217,17 @@ matching filters. One server can feed several devices, a phone
 build can leave out the database, and a question hidden on one device is
 hidden on all of them.
 
+To serve **both**, give `--db` twice. The first is the default; the app
+lists every database on the server under the ⇄ button ("Jeopardy! clues"
+and "Trivia") once it has reached it, and the token works for all of them.
+Each database is also served under its file name (`/trivia/v1/...`), so a
+build can point at one with `QUESTION_API_URL=http://192.168.1.20:8080/trivia`.
+The design is in [docs/combined-server-plan.md](docs/combined-server-plan.md).
+
+```
+python3 tool/serve_clues.py --db assets/db/clues.db --db assets/db/trivia.db
+```
+
 ```
 python3 tool/build_clue_db.py
 python3 tool/serve_clues.py --host 0.0.0.0 --token SOME-SECRET
@@ -288,7 +299,8 @@ Then open `http://<this computer>:8080/`.
   renderer and fonts from Google's servers and stays blank on a device
   without internet access. `serve_clues.py` warns about such builds.
 - **No settings needed.** A web build reads from the server that served the
-  page, using the `quizapp` API. It can't use the local clue database (that
+  page, using the `quizapp` API. If the server has both databases, ⇄
+  switches between them. It can't use the local clue database (that
   isn't bundled into web builds, which anyone loading the page could
   download), so `local` and `api_with_local_fallback` are refused.
 - **The token is entered in the page.** If the server has `--token`, the page
@@ -337,8 +349,10 @@ Then open `http://<nas>:8080/`. It starts again after a reboot.
   tool/build_trivia_db.py`), the downloads they're built from, and
   `reports.db`, so hidden questions survive upgrades. The image itself holds
   no questions.
-- **`.env`** picks the database (`QUIZ_DB=/data/trivia.db` for trivia) and the
-  token (`QUIZ_TOKEN`; empty means none). Run `docker compose up -d` after
+- **`.env`** picks the database (`QUIZ_DB=/data/trivia.db` for trivia, or
+  `QUIZ_DB=/data/clues.db,/data/trivia.db` for both) and the token
+  (`QUIZ_TOKEN`; empty means none). Build both databases first: the
+  container won't start with one missing. Run `docker compose up -d` after
   changing it. `serve_clues.py` reads the same two variables outside Docker.
 - **Folder ownership.** The container runs as uid 1000 and has to write to
   `./data`. If it can't, it stops with "cannot keep reported questions in

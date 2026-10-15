@@ -8,8 +8,8 @@ page. The [Docker plan](docker-plan.md) left this out (§9) as "its own
 plan". This is that plan: **one server, several databases, switched in the
 app** with the ⇄ button like any other source.
 
-**Status:** commits 2 and 3 of §8 (the server and the app) are done.
-Where the code differs from this plan:
+**Status:** done, in the commits of §8. Where the code differs from this
+plan:
 
 - The name rules of §2 apply only when there are several databases. One
   database is served at `/v1/` as before, so a file called, say,
@@ -21,6 +21,19 @@ Where the code differs from this plan:
   phones too ("Your question server (nas)"), since their labels no longer
   do. Before, a phone build's configured option showed the host as its
   label and only "Your question server" under it.
+
+Checked in Chromium (Playwright, `locale: 'en-US'`) at 1280 × 800 and
+360 × 740, against `serve_clues.py --host 0.0.0.0 --web build/web` started
+as the container starts it, with `QUIZ_DB='data/clues.db, data/trivia.db'`
+and `QUIZ_TOKEN` set: the real v42 clue database (543,912 clues) and a
+61-question trivia database built from the saved OpenTDB responses. The
+page asked for the token; after it, ⇄ read "Jeopardy! clues" and its dialog
+listed "Trivia" next, both "Your question server (127.0.0.1)". Choosing
+Trivia served multiple-choice questions, a reload kept it, hiding one
+reported it to the server (one row in `reported_trivia`), and switching
+back served clues. Not checked: the Docker image itself. Docker Hub refused
+the base image (HTTP 429, its anonymous pull limit) in this environment;
+the image is unchanged by this plan apart from `.env.example`.
 
 ## 0. What a person can do
 
@@ -231,13 +244,15 @@ list rides on the `/v1/info` the source already makes.
    `serverDatasets` getters, `SourceChooser.learn` and the saved list,
    `QuizPage` calling it, plus the Dart tests and the contract test.~~
    (done)
-4. **Docker, dev proxy and docs**: `.env.example`, `web_dev_config.yaml`,
+4. ~~**Docker, dev proxy and docs**: `.env.example`, `web_dev_config.yaml`,
    the README ("Serving questions from your own computer", "Playing in a
    browser", "Running on a NAS with Docker"), the question backend plan's
    §7 and the Docker plan's §9. Then a manual check in a browser
    (Playwright, `locale: 'en-US'`, as before) against the container with
    both databases: enter the token, play a clue, switch to Trivia with ⇄,
-   reload and still get trivia, hide a question, switch back to clues.
+   reload and still get trivia, hide a question, switch back to clues.~~
+   (done, against the server rather than the container; see the status
+   above)
 
 Commits 2–3 are the feature.
 
