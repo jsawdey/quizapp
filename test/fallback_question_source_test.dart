@@ -39,6 +39,15 @@ void main() {
     expect(source.attribution, isNull);
   });
 
+  test('lists the primary\'s server databases, whichever served last', () async {
+    final trivia = ServerDataset(name: 'trivia', kind: 'trivia',
+        url: Uri.parse('http://nas:8080/trivia/'));
+    primary.serverDatasets = [trivia];
+    primary.error = const SourceUnavailable('offline');
+    await source.randomQuestion();
+    expect(source.serverDatasets, [trivia]);
+  });
+
   test('switches to the fallback when the primary is unavailable', () async {
     primary.error = const SourceUnavailable('offline');
     expect((await source.randomQuestion()).key, 'f');

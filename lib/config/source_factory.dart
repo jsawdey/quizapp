@@ -20,6 +20,21 @@ QuestionSource createQuestionSource(SourceConfig config, {ApiCredentials? creden
   }
 }
 
+/// Reads [dataset], a database on the server [config] names, with the same
+/// token. It falls back to the bundled database only when that holds the
+/// same kind of question.
+QuestionSource createServerDatasetSource(SourceConfig config, ServerDataset dataset,
+    {ApiCredentials? credentials}) {
+  final api = HttpQuestionSource(baseUrl: dataset.url, dialect: QuizApiDialect(),
+      credentials: credentials ?? ApiCredentials(config.apiToken));
+  if (config.kind == SourceKind.apiWithLocalFallback &&
+      dataset.kind == config.localDataset.name) {
+    return FallbackQuestionSource(primary: api,
+        fallback: LocalQuestionSource(dataset: config.localDataset));
+  }
+  return api;
+}
+
 HttpQuestionSource _api(SourceConfig config, ApiCredentials? credentials) =>
     HttpQuestionSource(
       baseUrl: config.apiUrl!,

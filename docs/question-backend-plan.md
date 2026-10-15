@@ -255,6 +255,11 @@ Optional header: Authorization: Bearer <token>
   `category=<name>` (repeated, one name each) and `difficulty=easy,hard` on
   `/v1/random`. The app reads it when it opens and takes a 404 or 405 to
   mean a clue server from before it.
+- Added since: one server can hold several databases, each under its own
+  base (`{base}/trivia/v1/...`), with the first also at `{base}/v1/...`.
+  `/v1/info` lists them all in `"datasets": [{"name", "kind", "count",
+  "path"}]`, where `path` is relative to the base the request used, and the
+  app offers each one ([combined server plan](combined-server-plan.md)).
 
 ## 8. `tool/serve_clues.py` (optional self-hosting)
 

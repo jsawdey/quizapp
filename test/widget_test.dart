@@ -457,6 +457,44 @@ void main() {
       expect(find.text('CLUE T'), findsOneWidget);
     });
 
+    testWidgets('offers the server\'s other databases once it has said what it holds',
+        (WidgetTester tester) async {
+      final nas = Uri.parse('http://nas:8080/');
+      final datasets = [
+        ServerDataset(name: 'clues', kind: 'clues', url: nas),
+        ServerDataset(name: 'trivia', kind: 'trivia', url: nas.resolve('trivia/')),
+      ];
+      clues.serverDatasets = datasets;
+      final saved = InMemoryServerDatasetStore();
+      final created = <Uri>[];
+      sources = SourceChooser([
+        SourceOption(id: SourceChooser.configuredId, label: 'nas',
+            detail: 'Your question server', create: () => clues),
+        SourceOption(id: 'opentdb', label: 'Open Trivia Database', detail: 'Online trivia',
+            create: () => FakeQuestionSource([fakeQuestion('o')])),
+      ], store: choice, server: ConfiguredServer(url: nas,
+          detail: 'Your question server (nas)', configuredDetail: 'Your question server (nas)',
+          store: saved, create: (dataset) {
+            created.add(dataset.url);
+            return trivia;
+          }));
+      await pumpWithSources(tester);
+      expect(find.text('CLUE 1'), findsOneWidget);
+      expect(saved.datasets, datasets);
+
+      await tester.tap(find.byIcon(Icons.swap_horiz));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ListTile, 'Jeopardy! clues'), findsOneWidget);
+      expect(tester.widget<ListTile>(find.widgetWithText(ListTile, 'Jeopardy! clues')).selected,
+          isTrue);
+      await tester.tap(find.widgetWithText(ListTile, 'Trivia'));
+      await tester.pumpAndSettle();
+      expect(created, [nas.resolve('trivia/')]);
+      expect(find.text('CLUE T'), findsOneWidget);
+      expect(choice.id, 'server:trivia');
+      expect(find.byTooltip('Questions from: Trivia'), findsOneWidget);
+    });
+
     testWidgets('no button with nothing to choose, or while loading',
         (WidgetTester tester) async {
       final gate = Completer<void>();

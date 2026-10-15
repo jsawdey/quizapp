@@ -3,7 +3,14 @@
 # under development reads real clues from the same origin, as it does when
 # serve_clues.py --web serves a build. Start the server first:
 #   python3 tool/serve_clues.py
+# Serving several databases, each is also under its own name; a database
+# called anything but clues or trivia needs an entry of its own here.
+#   python3 tool/serve_clues.py --db assets/db/clues.db --db assets/db/trivia.db
 server:
   proxy:
     - target: http://localhost:8080/
       prefix: /v1/
+    - target: http://localhost:8080/
+      prefix: /clues/v1/
+    - target: http://localhost:8080/
+      prefix: /trivia/v1/
