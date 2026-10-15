@@ -186,7 +186,8 @@ without Tailscale, so it isn't part of this plan.
 - **TLS in the container.** Tailscale provides it (§6).
 - **Clues and trivia from one server.** A server holds one database, so
   playing both means two containers on two ports. Serving several would
-  change `/v1/info` and the app's source list; that's its own plan.
+  change `/v1/info` and the app's source list; that's its own plan
+  ([combined server plan](combined-server-plan.md)).
 - **CORS**, for hosting the page somewhere other than the server (web UI
   plan §12).
 
