@@ -12,7 +12,7 @@ app** with the ⇄ button like any other source.
 
 - **Serve both from one server**: `serve_clues.py --db
   assets/db/clues.db --db assets/db/trivia.db`, or in Docker,
-  `QUIZ_DB=/data/clues.db:/data/trivia.db` in `.env`. The first database
+  `QUIZ_DB=/data/clues.db,/data/trivia.db` in `.env`. The first database
   is the default.
 - **Switch in the app.** Once the app has reached the server, the ⇄ dialog
   lists each database on it, "Jeopardy! clues" and "Trivia", each described
@@ -104,8 +104,9 @@ Every `/v1/info`, at the root and under each name, gains `datasets`:
 ## 4. Changes to `serve_clues.py`
 
 - **`--db` may be given more than once**, in order; the first is the
-  default. `QUIZ_DB` takes a list separated by `os.pathsep` (`:`, or `;` on
-  Windows), as `PATH` does. Flags still win over the variable, as a whole.
+  default. `QUIZ_DB` takes a comma-separated list, with spaces around each
+  path trimmed. A path that contains a comma has to go in `--db` instead.
+  Flags still win over the variable, as a whole.
   With neither, it serves `assets/db/clues.db` alone, as now.
 - **`open_stores(paths, reports_path)`** returns the stores by name, in
   order, after the name checks of §2. Each store gets a `name`. Every store
@@ -183,8 +184,8 @@ list rides on the `/v1/info` the source already makes.
 
 ## 6. Docker and the dev proxy
 
-- **`.env.example`** shows both forms and the list separator:
-  `QUIZ_DB=/data/clues.db:/data/trivia.db`. `compose.yaml` keeps
+- **`.env.example`** shows both forms:
+  `QUIZ_DB=/data/clues.db,/data/trivia.db`. `compose.yaml` keeps
   `/data/clues.db` as its default, so a NAS without `trivia.db` doesn't
   stop.
 - **`web_dev_config.yaml`** forwards `/clues/v1/` and `/trivia/v1/` as well
@@ -195,7 +196,7 @@ list rides on the `/v1/info` the source already makes.
 
 | File | Checks |
 |---|---|
-| `tool/test_serve_clues.py` | Two databases: `/v1/` is the first; `/clues/v1/` and `/trivia/v1/` serve each; `datasets` and its relative paths from the root and from a name; reports through either path persist and share one `reports.db`; the token guards named paths; `/<name>/` outside `v1` still reaches the web UI; bad, duplicate and `v1` names refused; `QUIZ_DB` split on `os.pathsep`, and flags win; the notice when any database is unlicensed |
+| `tool/test_serve_clues.py` | Two databases: `/v1/` is the first; `/clues/v1/` and `/trivia/v1/` serve each; `datasets` and its relative paths from the root and from a name; reports through either path persist and share one `reports.db`; the token guards named paths; `/<name>/` outside `v1` still reaches the web UI; bad, duplicate and `v1` names refused; `QUIZ_DB` split on commas and trimmed, and flags win; the notice when any database is unlicensed |
 | `test/api_dialect_test.dart` (quizapp) | `datasets` read and resolved from a root and a named base, and behind a path prefix; entries for other hosts dropped; absent or malformed means none |
 | `test/source_choice_test.dart` | Learned options and their order; the configured URL isn't listed twice and gains its label; shared credentials; fallback only for a matching kind; nothing learned from a public API; the saved list restores a saved `server:trivia`, and is ignored for another URL |
 | `test/fallback_question_source_test.dart`, `test/http_question_source_test.dart` | `serverDatasets` forwarded |
@@ -261,7 +262,10 @@ Commits 2–3 are the feature.
   as today.
 - **Decided:** Docker's default stays one database, so a NAS that has only
   built `clues.db` keeps starting. Serving both is one line in `.env`.
-- **Open:** whether `QUIZ_DB` should also accept commas. `os.pathsep`
-  matches `PATH` and can't clash with a Windows drive letter, but `,` is
-  easier to read in `.env`. Paths with commas are rare; paths with `:`
-  aren't on Windows. Leaning `os.pathsep`.
+- **Decided:** `QUIZ_DB` separates paths with commas, not `os.pathsep`.
+  A comma is the same on every system and easy to read in `.env`, while
+  `os.pathsep` is `:` on Linux and `;` on Windows (where `:` is part of
+  every drive letter), so the examples would differ by system. Database
+  names can't contain a comma (§2), and in Docker the paths are always
+  under `/data`, so only a folder name could. Such a path can still be
+  given with `--db`, which needs no separator.
