@@ -8,12 +8,19 @@ page. The [Docker plan](docker-plan.md) left this out (§9) as "its own
 plan". This is that plan: **one server, several databases, switched in the
 app** with the ⇄ button like any other source.
 
-**Status:** commit 2 of §8 (the server) is done. Where the code differs
-from this plan:
+**Status:** commits 2 and 3 of §8 (the server and the app) are done.
+Where the code differs from this plan:
 
 - The name rules of §2 apply only when there are several databases. One
   database is served at `/v1/` as before, so a file called, say,
   `clues (1).db` still works on its own.
+- The `QuizApiDialect` tests are in `test/http_question_source_test.dart`,
+  where the dialect's other tests already were; there is no
+  `test/api_dialect_test.dart`.
+- Options for the server's databases name the host in their detail on
+  phones too ("Your question server (nas)"), since their labels no longer
+  do. Before, a phone build's configured option showed the host as its
+  label and only "Your question server" under it.
 
 ## 0. What a person can do
 
@@ -220,9 +227,10 @@ list rides on the `/v1/info` the source already makes.
    `/v1/info`, the `QUIZ_DB` list, start-up lines, and the tool tests.
    Useful on its own: phone builds can already use
    `http://nas:8080/trivia`.~~ (done)
-3. **The app**: `ServerDataset`, `QuizApiDialect` and the
+3. ~~**The app**: `ServerDataset`, `QuizApiDialect` and the
    `serverDatasets` getters, `SourceChooser.learn` and the saved list,
-   `QuizPage` calling it, plus the Dart tests and the contract test.
+   `QuizPage` calling it, plus the Dart tests and the contract test.~~
+   (done)
 4. **Docker, dev proxy and docs**: `.env.example`, `web_dev_config.yaml`,
    the README ("Serving questions from your own computer", "Playing in a
    browser", "Running on a NAS with Docker"), the question backend plan's

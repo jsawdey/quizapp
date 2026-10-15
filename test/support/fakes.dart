@@ -24,6 +24,9 @@ class FakeQuestionSource extends QuestionSource {
   @override
   final String? attribution;
 
+  @override
+  List<ServerDataset> serverDatasets = const [];
+
   /// What [filterCategories] returns, or throws if [categoriesError] is set.
   List<String> categories;
   Object? categoriesError;

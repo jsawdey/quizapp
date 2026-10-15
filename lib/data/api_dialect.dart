@@ -55,6 +55,10 @@ abstract class ApiDialect {
   /// [QuestionSource.filterCategories].
   Future<List<String>> filterCategories(ApiRequester get, Uri base) async => const [];
 
+  /// The databases on the server, learned in [open]; see
+  /// [QuestionSource.serverDatasets].
+  List<ServerDataset> get serverDatasets => const [];
+
   /// Whether [randomUri] applies the filter on the server.
   bool get filtersOnServer => false;
 
@@ -108,7 +112,8 @@ final Map<String, ApiDialect Function()> apiDialects = {
 /// `difficulty` for trivia.
 ///
 /// [open] asks `/v1/info` what the server holds; servers older than it are
-/// taken to serve clues.
+/// taken to serve clues. It also lists every database on the server, which
+/// [serverDatasets] offers (docs/combined-server-plan.md).
 class QuizApiDialect extends ApiDialect {
   static const maxCount = 50;
 
@@ -127,6 +132,7 @@ class QuizApiDialect extends ApiDialect {
   Set<FilterKind> _filters = clueFilters;
   List<String> _categories = const [];
   String? _attribution;
+  List<ServerDataset> _datasets = const [];
 
   @override
   String get name => 'quizapp';
@@ -147,6 +153,9 @@ class QuizApiDialect extends ApiDialect {
   Future<List<String>> filterCategories(ApiRequester get, Uri base) async => _categories;
 
   @override
+  List<ServerDataset> get serverDatasets => _datasets;
+
+  @override
   Future<void> open(ApiRequester get, Uri base) async {
     final Object? info;
     try {
@@ -165,6 +174,38 @@ class QuizApiDialect extends ApiDialect {
         : clueFilters;
     _categories = categories is List ? categories.whereType<String>().toList() : const [];
     _attribution = attribution is String && attribution.isNotEmpty ? attribution : null;
+    _datasets = datasetsFrom(info['datasets'], base);
+  }
+
+  /// The `datasets` of a `/v1/info` read at [base], each path resolved
+  /// against it. The token goes to every one of them, so entries that lead
+  /// to another server, or that don't parse, are left out.
+  static List<ServerDataset> datasetsFrom(Object? json, Uri base) {
+    if (json is! List) return const [];
+    final root = base.path.endsWith('/') ? base : base.replace(path: '${base.path}/');
+    final datasets = <ServerDataset>[];
+    for (final item in json) {
+      if (item is! Map<String, dynamic>) continue;
+      final name = item['name'];
+      final kind = item['kind'];
+      final path = item['path'];
+      final count = item['count'];
+      if (name is! String || name.isEmpty || kind is! String || path is! String) continue;
+      final Uri url;
+      try {
+        url = root.resolve(path);
+      } on FormatException {
+        continue;
+      }
+      if (url.scheme != root.scheme || url.host != root.host || url.port != root.port ||
+          url.userInfo != root.userInfo || url.hasQuery || url.hasFragment ||
+          !url.path.endsWith('/') || datasets.any((d) => d.name == name)) {
+        continue;
+      }
+      datasets.add(ServerDataset(name: name, kind: kind, url: url,
+          count: count is int ? count : null));
+    }
+    return datasets;
   }
 
   @override

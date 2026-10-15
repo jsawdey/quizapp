@@ -37,6 +37,10 @@ class FallbackQuestionSource extends QuestionSource {
   bool get supportsRemoteReport =>
       primary.supportsRemoteReport || fallback.supportsRemoteReport;
 
+  /// The primary's: the fallback is a database on this device.
+  @override
+  List<ServerDataset> get serverDatasets => primary.serverDatasets;
+
   /// The credit for whichever source served the last question.
   @override
   String? get attribution => _usingFallback ? fallback.attribution : primary.attribution;

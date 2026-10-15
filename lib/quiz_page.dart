@@ -156,6 +156,9 @@ class _QuizPageState extends State<QuizPage> {
       // the shortcuts dead until the page is clicked.
       if (_needsToken) _pageFocus.requestFocus();
       widget.scoreKeeper?.show(question);
+      // The source is open now, so a quizapp server has said what else it
+      // holds; the ⇄ dialog offers it.
+      widget.sources?.learn(widget.repository.source.serverDatasets);
       setState(() {
         _current = question;
         _showAnswer = false;

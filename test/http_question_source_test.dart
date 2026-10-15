@@ -190,6 +190,52 @@ void main() {
       expect(clues.attribution, isNull);
     });
 
+    test('open learns the databases on the server, relative to the base', () async {
+      final nas = Uri.parse('http://nas:8080');
+      final dialect = QuizApiDialect();
+      expect(dialect.serverDatasets, isEmpty);
+      await dialect.open((_) async => {
+        'kind': 'clues',
+        'datasets': [
+          {'name': 'clues', 'kind': 'clues', 'count': 6, 'path': './'},
+          {'name': 'trivia', 'kind': 'trivia', 'count': 61, 'path': 'trivia/'},
+        ],
+      }, nas);
+      expect(dialect.serverDatasets, [
+        ServerDataset(name: 'clues', kind: 'clues', count: 6, url: Uri.parse('http://nas:8080/')),
+        ServerDataset(name: 'trivia', kind: 'trivia', count: 61,
+            url: Uri.parse('http://nas:8080/trivia/')),
+      ]);
+
+      // From a database's own base, and behind a proxy's prefix.
+      final fromTrivia = QuizApiDialect.datasetsFrom([
+        {'name': 'clues', 'kind': 'clues', 'path': '../'},
+        {'name': 'trivia', 'kind': 'trivia', 'path': './'},
+      ], Uri.parse('https://host.example/quiz/trivia'));
+      expect([for (final d in fromTrivia) d.url.toString()],
+          ['https://host.example/quiz/', 'https://host.example/quiz/trivia/']);
+      expect(fromTrivia.first.count, isNull);
+    });
+
+    test('keeps only databases on the same server that parse', () {
+      final datasets = QuizApiDialect.datasetsFrom([
+        {'name': 'elsewhere', 'kind': 'clues', 'path': 'https://evil.example/'},
+        {'name': 'other-port', 'kind': 'clues', 'path': '//nas:9090/'},
+        {'name': 'plain', 'kind': 'clues', 'path': 'http://nas:8080/plain/'},
+        {'name': 'query', 'kind': 'clues', 'path': 'q/?x=1'},
+        {'name': 'file', 'kind': 'clues', 'path': 'clues.db'},
+        {'name': '', 'kind': 'clues', 'path': 'empty/'},
+        {'name': 'no-kind', 'path': 'no-kind/'},
+        'trivia',
+        {'name': 'ok', 'kind': 'trivia', 'path': 'ok/'},
+        {'name': 'ok', 'kind': 'trivia', 'path': 'again/'},
+      ], Uri.parse('http://nas:8080/'));
+      expect([for (final d in datasets) d.name], ['plain', 'ok']);
+      expect(QuizApiDialect.datasetsFrom(null, Uri.parse('http://nas:8080/')), isEmpty);
+      expect(QuizApiDialect.datasetsFrom({'clues': './'}, Uri.parse('http://nas:8080/')),
+          isEmpty);
+    });
+
     test('a server without /v1/info serves clues', () async {
       final old = QuizApiDialect();
       await old.open((_) async => throw const UnexpectedStatus('HTTP 404', 404), base);
@@ -351,6 +397,17 @@ void main() {
           throwsA(isA<NoQuestionFound>()));
       expect(requests, hasLength(1));
       expect(requests.single.url.queryParameters['round'], '3');
+    });
+
+    test('lists the databases its server holds once open', () async {
+      final source = HttpQuestionSource(baseUrl: base, dialect: QuizApiDialect(),
+          client: MockClient((request) async => http.Response(json.encode({
+            'kind': 'clues',
+            'datasets': [{'name': 'trivia', 'kind': 'trivia', 'path': 'trivia/'}],
+          }), 200)));
+      expect(source.serverDatasets, isEmpty);
+      await source.open();
+      expect(source.serverDatasets.single.url, base.resolve('trivia/'));
     });
 
     test('a server that ignores row still only serves matching rows', () async {

@@ -67,6 +67,9 @@ class HttpQuestionSource extends QuestionSource {
   @override
   String? get attribution => dialect.attribution;
 
+  @override
+  List<ServerDataset> get serverDatasets => dialect.serverDatasets;
+
   /// Starts the dialect's session, if it has one.
   @override
   Future<void> open() => _startSession();

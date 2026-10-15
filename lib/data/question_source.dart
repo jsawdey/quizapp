@@ -117,6 +117,53 @@ String isoDate(DateTime date) =>
     '${date.month.toString().padLeft(2, '0')}-'
     '${date.day.toString().padLeft(2, '0')}';
 
+/// One database on a `quizapp` server, as its `/v1/info` lists them; see
+/// [QuestionSource.serverDatasets] and docs/combined-server-plan.md.
+@immutable
+class ServerDataset {
+  /// Its name on the server, such as `trivia`.
+  final String name;
+
+  /// `clues` or `trivia`.
+  final String kind;
+
+  /// How many questions it holds, if the server said.
+  final int? count;
+
+  /// Its base URL, ending in `/`.
+  final Uri url;
+
+  const ServerDataset({required this.name, required this.kind, required this.url,
+    this.count});
+
+  /// Reads what [toJson] wrote; null if it isn't that shape.
+  static ServerDataset? fromJson(Object? json) {
+    if (json is! Map<String, dynamic>) return null;
+    final name = json['name'];
+    final kind = json['kind'];
+    final url = json['url'];
+    final count = json['count'];
+    if (name is! String || kind is! String || url is! String) return null;
+    final parsed = Uri.tryParse(url);
+    if (parsed == null) return null;
+    return ServerDataset(name: name, kind: kind, url: parsed, count: count is int ? count : null);
+  }
+
+  Map<String, Object?> toJson() =>
+      {'name': name, 'kind': kind, 'url': url.toString(), if (count != null) 'count': count};
+
+  @override
+  bool operator ==(Object other) =>
+      other is ServerDataset && name == other.name && kind == other.kind &&
+      url == other.url && count == other.count;
+
+  @override
+  int get hashCode => Object.hash(name, kind, url, count);
+
+  @override
+  String toString() => 'ServerDataset($name, $kind, $url)';
+}
+
 /// The backend is unreachable or broken: network down, missing database,
 /// server error. A fallback source may take over.
 class SourceUnavailable implements Exception {
@@ -162,6 +209,10 @@ abstract class QuestionSource {
   /// order to offer them. Only asked for when [supportedFilters] has
   /// [FilterKind.category]; may throw [SourceUnavailable].
   Future<List<String>> filterCategories() async => const [];
+
+  /// The databases on this source's server, this one included, once it has
+  /// opened. Empty unless it is a `quizapp` server that lists them.
+  List<ServerDataset> get serverDatasets => const [];
 
   /// Whether hiding [question] reports it to the backend too.
   bool canReport(Question question) => supportsRemoteReport;
