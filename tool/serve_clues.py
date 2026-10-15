@@ -167,9 +167,25 @@ def open_stores(db_paths, reports_path, rng=None):
                 raise ValueError(f'more than one database is called {name}.db; rename one.')
     stores = {}
     for path in db_paths:
-        store = open_store(path, reports_path, rng)
+        try:
+            store = open_store(path, reports_path, rng)
+        except sqlite3.Error as e:
+            raise ValueError(f'cannot open {path}: {e}') from e
         stores[store.name] = store
     return stores
+
+
+def unreadable(db_path):
+    """Why the server can't read db_path, or None if it can."""
+    if os.access(db_path, os.R_OK):
+        return None
+    reason = f'cannot read {db_path}: permission denied.'
+    if hasattr(os, 'getuid'):
+        owner = Path(db_path).stat().st_uid
+        reason += (f' It belongs to user {owner}, and this server runs as user '
+                   f'{os.getuid()}.')
+    return (reason + ' Make it readable to everyone (chmod a+r on it), or build it '
+            'again as this user, as docker compose run does.')
 
 
 class ClueStore:
@@ -704,8 +720,16 @@ def main(argv=None):
     args = parse_args(argv)
     for db in args.db:
         if not db.exists():
-            print(f'error: {db} does not exist. Run python3 tool/build_clue_db.py '
-                  '(or tool/build_trivia_db.py) first.', file=sys.stderr)
+            parts = [Path(part) for part in str(db).split(':') if part]
+            if len(parts) > 1 and any(part.exists() for part in parts):
+                hint = 'To serve several databases, separate them with commas, not colons.'
+            else:
+                hint = 'Run python3 tool/build_clue_db.py (or tool/build_trivia_db.py) first.'
+            print(f'error: {db} does not exist. {hint}', file=sys.stderr)
+            return 1
+        reason = unreadable(db)
+        if reason is not None:
+            print(f'error: {reason}', file=sys.stderr)
             return 1
     if args.web is not None and not (args.web / 'index.html').is_file():
         print(f'error: {args.web} has no index.html. Run '

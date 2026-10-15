@@ -155,6 +155,18 @@ def read_rows(path):
             yield row
 
 
+def new_file_mode():
+    """The mode a new file gets under the umask: 0o644 with the usual 022.
+
+    tempfile.mkstemp makes files only their owner can read, which would stop
+    a server running as another user (a Docker container's, say) from
+    opening the database.
+    """
+    umask = os.umask(0)
+    os.umask(umask)
+    return 0o666 & ~umask
+
+
 def version_path(db_path):
     """The small JSON file written next to the database (clues.db -> clues.version).
 
@@ -232,6 +244,7 @@ def build(input_path, output_path, dataset_version, source_sha256, keep_media=Fa
     fd, tmp_name = tempfile.mkstemp(suffix='.db', dir=output_path.parent)
     os.close(fd)
     tmp_path = Path(tmp_name)
+    os.chmod(tmp_path, new_file_mode())
     try:
         conn = sqlite3.connect(tmp_path)
         with conn:

@@ -1,5 +1,7 @@
 import json
+import os
 import sqlite3
+import stat
 import tempfile
 import unittest
 from pathlib import Path
@@ -92,6 +94,14 @@ class BuildTest(unittest.TestCase):
 
         version = json.loads(self.output.with_suffix('.version').read_text())
         self.assertEqual(version['question_count'], '61')
+
+    def test_anyone_may_read_the_database(self):
+        # A server running as another user, such as a Docker container's,
+        # has to open it.
+        old = os.umask(0o022)
+        self.addCleanup(os.umask, old)
+        self.build([item()])
+        self.assertEqual(stat.S_IMODE(self.output.stat().st_mode), 0o644)
 
     def test_a_failed_build_leaves_no_partial_database(self):
         self.build([item()])

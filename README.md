@@ -358,6 +358,12 @@ Then open `http://<nas>:8080/`. It starts again after a reboot.
   `./data`. If it can't, it stops with "cannot keep reported questions in
   /data/reports.db"; set `user:` in `compose.yaml` to the folder owner's ids
   (`id -u`, `id -g`; often `1026:100` on Synology), or `chown 1000:1000 data`.
+- **If it keeps restarting**, `docker compose logs quizapp` says why. "cannot
+  read /data/trivia.db" means the database was built by another user, such
+  as on the NAS itself or with `sudo`. The build scripts used to make each
+  database readable only by whoever built it; `chmod a+r data/*.db` fixes
+  one built that way. "does not exist" with two paths joined by `:` means `QUIZ_DB`
+  needs a comma between them.
 - **From elsewhere, with Tailscale** on the NAS: run `tailscale serve --bg
   8080` there once, and play at `https://<nas>.<tailnet>.ts.net/`. Release
   phone builds can use that address as `QUESTION_API_URL` (see

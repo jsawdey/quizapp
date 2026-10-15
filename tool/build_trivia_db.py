@@ -179,6 +179,18 @@ def fetch_all(base, get_json=http_get_json, sleep=time.sleep, gap=REQUEST_GAP, l
             raise FetchError(f'unexpected response (HTTP {status}): {body}')
 
 
+def new_file_mode():
+    """The mode a new file gets under the umask: 0o644 with the usual 022.
+
+    tempfile.mkstemp makes files only their owner can read, which would stop
+    a server running as another user (a Docker container's, say) from
+    opening the database.
+    """
+    umask = os.umask(0)
+    os.umask(umask)
+    return 0o666 & ~umask
+
+
 def version_path(db_path):
     """The JSON file written next to the database (trivia.db -> trivia.version)."""
     return db_path.with_suffix('.version')
@@ -220,6 +232,7 @@ def build(items, output_path, fetched_at, source):
     fd, tmp_name = tempfile.mkstemp(suffix='.db', dir=output_path.parent)
     os.close(fd)
     tmp_path = Path(tmp_name)
+    os.chmod(tmp_path, new_file_mode())
     try:
         conn = sqlite3.connect(tmp_path)
         try:

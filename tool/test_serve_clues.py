@@ -500,6 +500,34 @@ class SeveralDatabasesTest(ServerTestCase):
         # The clues have no open licence, so the notice shows.
         self.assertIn('Personal use only', stdout.getvalue())
 
+    def test_main_says_which_database_it_cannot_read(self):
+        stderr = io.StringIO()
+        trivia = str(self.trivia)
+        readable = os.access
+        with contextlib.redirect_stderr(stderr), unittest.mock.patch.object(
+                serve_clues.os, 'access', side_effect=lambda path, mode: (
+                    str(path) != trivia and readable(path, mode))):
+            code = serve_clues.main(['--db', str(self.db), '--db', trivia,
+                                     '--reports', str(self.reports)])
+        self.assertEqual(code, 1)
+        self.assertIn(f'cannot read {trivia}: permission denied. It belongs to user '
+                      f'{self.trivia.stat().st_uid}, and this server runs as user '
+                      f'{os.getuid()}.', stderr.getvalue())
+        self.assertIn('chmod a+r', stderr.getvalue())
+
+    def test_main_says_when_paths_are_joined_with_colons(self):
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            code = serve_clues.main(['--db', f'{self.db}:{self.trivia}'])
+        self.assertEqual(code, 1)
+        self.assertIn('separate them with commas, not colons', stderr.getvalue())
+
+    def test_a_database_that_cannot_be_opened_is_named(self):
+        broken = self.dir / 'broken.db'
+        broken.write_text('not a database')
+        with self.assertRaisesRegex(ValueError, f'cannot open {broken}: '):
+            serve_clues.open_stores([self.db, broken], self.reports)
+
     def test_main_needs_every_database(self):
         stderr = io.StringIO()
         with contextlib.redirect_stderr(stderr):

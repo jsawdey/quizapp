@@ -2,7 +2,9 @@
 
 import hashlib
 import json
+import os
 import sqlite3
+import stat
 import sys
 import tempfile
 import unittest
@@ -172,6 +174,14 @@ class BuildClueDbTest(unittest.TestCase):
         write_tsv(self.tsv, [['1', '200', '0', 'ANIMALS']])
         with self.assertRaises(ValueError):
             self.build()
+
+    def test_anyone_may_read_the_database(self):
+        # A server running as another user, such as a Docker container's,
+        # has to open it.
+        old = os.umask(0o022)
+        self.addCleanup(os.umask, old)
+        self.build()
+        self.assertEqual(stat.S_IMODE(self.db.stat().st_mode), 0o644)
 
     def test_failed_build_keeps_previous_database(self):
         self.build()
